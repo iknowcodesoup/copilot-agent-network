@@ -1,0 +1,113 @@
+# ==============================================================================
+# OS & Environment
+# ==============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ==============================================================================
+# IDEs & Editors
+# ==============================================================================
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# ==============================================================================
+# Environment Variables
+# ==============================================================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.venv/
+venv/
+ENV/
+env/
+
+# ==============================================================================
+# Node.js & Monorepo Artifacts
+# ==============================================================================
+node_modules/
+jspm_packages/
+.npm/
+.yarn/
+.turbo/
+.nx/
+.cache/
+
+# Keep yarn lock files but ignore cache directories
+!.yarn/cache
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+
+# npm / yarn / pnpm logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==============================================================================
+# Next.js & Frontend Build Artifacts
+# ==============================================================================
+.next/
+out/
+build/
+dist/
+.swc/
+.vite/
+*.tsbuildinfo
+next-env.d.ts
+
+# ==============================================================================
+# Python
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ==============================================================================
+# Test & Coverage Output
+# ==============================================================================
+coverage/
+.nyc_output/
+reports/
+
+# ==============================================================================
+# Docker / Runtime
+# ==============================================================================
+*.log

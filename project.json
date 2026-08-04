@@ -1,0 +1,46 @@
+{
+  "name": "apps",
+  "$schema": "./node_modules/nx/schemas/project-schema.json",
+  "root": ".",
+  "projectType": "application",
+  "targets": {
+    "config": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "docker compose config"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "docker compose build"
+      }
+    },
+    "up": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "docker compose up --build"
+      }
+    },
+    "watch": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "docker compose -f docker-compose.yml -f docker-compose.watch.yml up --watch"
+      }
+    },
+    "down": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "docker compose down"
+      }
+    }
+  },
+  "tags": [
+    "type:ops"
+  ]
+}

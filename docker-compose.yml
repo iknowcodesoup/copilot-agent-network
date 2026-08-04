@@ -1,0 +1,19 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/agentic-executor/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      PYTHON_API_URL: http://pythonapi:8000
+    depends_on:
+      pythonapi:
+        condition: service_started
+
+  pythonapi:
+    build:
+      context: .
+      dockerfile: apps/pythonapi/Dockerfile
+    ports:
+      - "8000:8000"

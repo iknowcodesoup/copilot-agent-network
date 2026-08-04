@@ -1,0 +1,51 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/agentic-executor/Dockerfile.dev
+    command: ["npx", "next", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
+    environment:
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      PYTHON_API_URL: http://pythonapi:8000
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/agentic-executor/src
+          target: /app/apps/agentic-executor/src
+        - action: sync
+          path: ./apps/agentic-executor/public
+          target: /app/apps/agentic-executor/public
+        - action: sync+restart
+          path: ./apps/agentic-executor/next.config.js
+          target: /app/apps/agentic-executor/next.config.js
+        - action: rebuild
+          path: ./apps/agentic-executor/package.json
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./package-lock.json
+
+  pythonapi:
+    build:
+      context: .
+      dockerfile: apps/pythonapi/Dockerfile.dev
+    command: ["uv", "run", "uvicorn", "pythonapi.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      PYTHONUNBUFFERED: "1"
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/pythonapi/pythonapi
+          target: /app/pythonapi
+        - action: sync
+          path: ./apps/pythonapi/tests
+          target: /app/tests
+        - action: sync+restart
+          path: ./apps/pythonapi/pyproject.toml
+          target: /app/pyproject.toml
+        - action: rebuild
+          path: ./apps/pythonapi/uv.lock
+        - action: rebuild
+          path: ./apps/pythonapi/Dockerfile.dev
