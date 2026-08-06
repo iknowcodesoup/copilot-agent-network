@@ -1,5 +1,5 @@
 ---
-name: diagrams-mermaid-syntax
+name: diagrams
 description: This skill provides guidance for creating architecture diagrams, flowcharts, sequence diagrams, or any visual documentation in specs or markdown files. Always use Mermaid syntax - never use ASCII box art.
 ---
 
@@ -21,43 +21,60 @@ Select the appropriate Mermaid diagram type:
 
 ```mermaid
 flowchart TD
-    A[ViewModel] --> B[IDeviceRepository]
-    B --> C[PreferencesAdapter]
-    C --> D[MAUI Preferences]
+    A[ChatWindow] --> B[HttpAgent]
+    B --> C["/api/agent"]
+    C --> D[run_chat_agent]
+    D --> E[LiteLLM]
 ```
 
 ### 3. Sequence Diagram
 
+Use this type for an SSE stream, an HTTP call, or any time-ordered exchange.
+
 ```mermaid
 sequenceDiagram
-    participant App
-    participant Repository
-    participant Preferences
+    participant Browser
+    participant AgentRoute as /api/agent
+    participant Agent as run_chat_agent
+    participant LiteLLM
 
-    App->>Repository: GetLastDevice()
-    Repository->>Preferences: Get(key)
-    Preferences-->>Repository: value
-    Repository-->>App: SavedDevice
+    Browser->>AgentRoute: POST RunAgentInput
+    AgentRoute->>Agent: run(agent_input)
+    Agent-->>Browser: RunStartedEvent
+    Agent->>LiteLLM: chat.completions (stream)
+    loop Each token
+        LiteLLM-->>Agent: delta
+        Agent-->>Browser: TextMessageContentEvent
+    end
+    Agent-->>Browser: RunFinishedEvent
 ```
 
 ### 4. Component Diagram
 
+Show the layer boundaries. Never draw an arrow that points up a layer.
+
 ```mermaid
 flowchart LR
-    subgraph Presentation
-        VM[ViewModel]
+    subgraph Routes
+        R["agent.py"]
     end
-    subgraph Application
-        SVC[ConnectionFacade]
+    subgraph Core
+        P[RagPipeline]
+    end
+    subgraph Repositories
+        DR[PostgresDocumentRepository]
+        EI[QdrantEmbeddingIndex]
     end
     subgraph Infrastructure
-        REPO[Repository]
-        ADAPTER[Adapter]
+        PG[(Postgres)]
+        QD[(Qdrant)]
     end
 
-    VM --> SVC
-    SVC --> REPO
-    REPO --> ADAPTER
+    R --> P
+    P --> DR
+    P --> EI
+    DR --> PG
+    EI --> QD
 ```
 
 ## Why Mermaid?
@@ -72,7 +89,7 @@ flowchart LR
 ```
 BAD - Do not use:
 +------------------+     +------------------+
-|   ViewModel      | --> |   Repository     |
+|   RagPipeline    | --> |   Repository     |
 +------------------+     +------------------+
 ```
 

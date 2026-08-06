@@ -1,5 +1,5 @@
 ---
-name: leanspec-workflow
+name: leanspec
 description: This skill provides guidance for creating, updating, and managing LeanSpec specifications. Use this skill when working with specs, using LeanSpec CLI/MCP tools, tracking implementation status, or understanding spec dependencies.
 ---
 

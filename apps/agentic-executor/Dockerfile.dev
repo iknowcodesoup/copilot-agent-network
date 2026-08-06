@@ -12,4 +12,4 @@ ENV PORT=3000
 
 WORKDIR /app/apps/agentic-executor
 EXPOSE 3000
-CMD ["npx", "next", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
+CMD ["corepack", "pnpm", "exec", "next", "dev", "--hostname", "0.0.0.0", "--port", "3000"]

@@ -15,8 +15,12 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pythonapi.core.embeddings import EmbeddingClient
+from pythonapi.core.generation import AnswerGenerator
+from pythonapi.core.pii import PiiMasker
+from pythonapi.core.reranking import Reranker
 from pythonapi.repositories.base import DocumentRepository
 from pythonapi.repositories.orders import OrderRepository
+from pythonapi.repositories.pii_vault import PiiVaultRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
 
@@ -75,6 +79,22 @@ def get_required_order_repository(request: Request) -> OrderRepository:
 
 def get_search_cache(request: Request) -> LRUCache:
     return request.app.state.search_cache
+
+
+def get_pii_masker(request: Request) -> PiiMasker | None:
+    return request.app.state.pii_masker
+
+
+def get_pii_vault_repository(request: Request) -> PiiVaultRepository | None:
+    return request.app.state.pii_vault_repository
+
+
+def get_reranker(request: Request) -> Reranker:
+    return request.app.state.reranker
+
+
+def get_answer_generator(request: Request) -> AnswerGenerator:
+    return request.app.state.answer_generator
 
 
 async def enforce_search_rate_limit(request: Request) -> None:

@@ -1,9 +1,5 @@
 import "./global.css";
-import { CopilotKit } from "@copilotkit/react-core/v2";
-import "@copilotkit/react-core/v2/styles.css";
-
-const runtimeUrl =
-  process.env.NEXT_PUBLIC_COPILOTKIT_RUNTIME_URL ?? "/api/copilotkit";
+import { CopilotProvider } from "./features/chat/copilot_provider";
 
 export const metadata = {
   title: "Welcome to ",
@@ -17,9 +13,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <CopilotKit runtimeUrl={runtimeUrl}>
-        <body>{children}</body>
-      </CopilotKit>
+      <body>
+        <CopilotProvider>{children}</CopilotProvider>
+      </body>
     </html>
   );
 }

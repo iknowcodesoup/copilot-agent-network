@@ -32,10 +32,10 @@ What they do:
 
 Endpoints:
 
-- Next.js app: `http://localhost:3000`
+- Next.js app: `http://localhost:4001`
 - Python API health: `http://localhost:8000/health`
 - Python API hello: `http://localhost:8000/hello`
-- Langfuse UI: `http://localhost:3001`
+- Langfuse UI: `http://localhost:4002`
 
 ## Watch Behavior
 
@@ -67,7 +67,7 @@ The Python API now initializes a Langfuse client when these environment variable
 - `LANGFUSE_SECRET_KEY`
 
 Both compose stacks now include a local self-hosted Langfuse v2 service and a Postgres dependency.
-The Python container points to the internal compose URL `http://langfuse:3000`, while the UI is exposed at `http://localhost:3001`.
+The Python container points to the internal compose URL `http://langfuse:3000`, while the UI is exposed at `http://localhost:4002`.
 
 To customize the default bootstrap credentials and secrets, copy `.env.langfuse.example` to `.env` or export the variables in your shell before running `nx up apps` or `nx watch apps`.
 

@@ -13,18 +13,30 @@ class DocumentStatus(StrEnum):
     FAILED = "failed"
 
 
+class SparseVectorPayload(BaseModel):
+    indices: list[int] = Field(default_factory=list)
+    values: list[float] = Field(default_factory=list)
+
+
 class Chunk(BaseModel):
     id: str
     document_id: str
     index: int
-    text: str
+    text: str  # PII-masked; never raw PII
+    headings: list[str] = Field(default_factory=list)
+    page_no: int | None = None
     embedding: list[float] = Field(default_factory=list)
+    sparse_embedding: SparseVectorPayload = Field(
+        default_factory=lambda: SparseVectorPayload(indices=[], values=[])
+    )
 
 
 class Document(BaseModel):
     id: str
     title: str
-    content: str
+    filename: str
+    raw_content: bytes  # original upload bytes, kept for deferred Docling parse
+    content: str = ""  # Docling full text, PII-masked, empty until PROCESSING completes
     status: DocumentStatus = DocumentStatus.PENDING
     chunk_count: int = 0
     error: str | None = None
@@ -61,14 +73,21 @@ class SearchRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=50)
 
 
+class RagAnswer(BaseModel):
+    is_answerable: bool
+    answer: str
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class SearchResultItem(BaseModel):
     document_id: str
     document_title: str
     chunk_index: int
-    text: str
-    score: float
+    text: str  # PII-reconstituted before being returned
+    score: float  # cross-encoder rerank score, not raw cosine similarity
 
 
 class SearchResponse(BaseModel):
     query: str
+    answer: RagAnswer
     results: list[SearchResultItem]

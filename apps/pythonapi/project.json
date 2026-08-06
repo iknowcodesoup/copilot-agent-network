@@ -61,6 +61,13 @@
       },
       "cache": true
     },
+    "baml-generate": {
+      "executor": "@nxlv/python:run-commands",
+      "options": {
+        "command": "uv run baml-cli generate --from baml_src",
+        "cwd": "{projectRoot}"
+      }
+    },
     "test": {
       "executor": "@nxlv/python:run-commands",
       "outputs": [

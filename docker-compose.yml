@@ -3,10 +3,12 @@ services:
     build:
       context: .
       dockerfile: apps/agentic-executor/Dockerfile
+      args:
+        # Browser-facing, so this is the published host port - not the
+        # pythonapi service hostname, which no browser can resolve.
+        NEXT_PUBLIC_PYTHON_API_URL: ${NEXT_PUBLIC_PYTHON_API_URL:-http://localhost:8000}
     ports:
-      - "3000:3000"
-    environment:
-      PYTHON_API_URL: http://pythonapi:8000
+      - "4001:3000"
     depends_on:
       pythonapi:
         condition: service_started
@@ -17,21 +19,76 @@ services:
       dockerfile: apps/pythonapi/Dockerfile
     ports:
       - "8000:8000"
+    extra_hosts:
+      # Lets the container reach a local LM Studio/Ollama server running on
+      # the host. Docker Desktop (Windows/Mac) resolves this automatically;
+      # the mapping is required for Docker on Linux.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - hf-cache:/root/.cache/huggingface
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-lf_pk_local_pythonapi}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-lf_sk_local_pythonapi}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?LANGFUSE_PUBLIC_KEY must be set in .env}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?LANGFUSE_SECRET_KEY must be set in .env}
       POSTGRES_URL: ${PYTHONAPI_POSTGRES_URL:-postgresql://pythonapi:pythonapi@pythonapi-db:5432/pythonapi}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      # pythonapi, BAML, and the public /api/v1 proxy all go through the same
+      # LiteLLM gateway. LiteLLM then routes to the real backend model server
+      # (LM Studio by default). EMBEDDING_DIM must match the dense embedding
+      # model exposed by the gateway (768 for nomic-embed).
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://litellm:4000/v1}
+      LLM_API_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env}
+      LLM_MODEL: ${LLM_MODEL:-chat-default}
+      # The web app calls /api/agent from the browser, so its origin needs to
+      # be allowed here. This is the published web port, not the container's.
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:4001}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai_compatible}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embedding-default}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-768}
+      EMBEDDING_SPARSE_MODEL: ${EMBEDDING_SPARSE_MODEL:-Qdrant/bm25}
+      HF_TOKEN: ${HF_TOKEN:-}
+      RERANK_PROVIDER: ${RERANK_PROVIDER:-cross_encoder}
+      RERANK_MODEL: ${RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      GENERATION_PROVIDER: ${GENERATION_PROVIDER:-baml}
+      # Required (not defaulted): an unset key/salt disables PII masking
+      # entirely rather than degrading gracefully - see .env.
+      PII_VAULT_ENCRYPTION_KEY: ${PII_VAULT_ENCRYPTION_KEY:?PII_VAULT_ENCRYPTION_KEY must be set in .env}
+      PII_VAULT_SALT: ${PII_VAULT_SALT:?PII_VAULT_SALT must be set in .env}
     depends_on:
       redis:
         condition: service_started
       langfuse:
         condition: service_healthy
+      litellm:
+        condition: service_started
       pythonapi-db:
         condition: service_healthy
       qdrant:
+        condition: service_healthy
+
+  litellm:
+    image: docker.litellm.ai/berriai/litellm:latest
+    command: ["--config", "/app/config.yaml"]
+    ports:
+      - "4000:4000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./apps/pythonapi/litellm.config.yaml:/app/config.yaml:ro
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env}
+      LITELLM_UPSTREAM_API_BASE: ${LITELLM_UPSTREAM_API_BASE:-http://host.docker.internal:1234/v1}
+      LITELLM_UPSTREAM_API_KEY: ${LITELLM_UPSTREAM_API_KEY:?LITELLM_UPSTREAM_API_KEY must be set in .env}
+      LITELLM_CHAT_BACKEND_MODEL: ${LITELLM_CHAT_BACKEND_MODEL:-openai/gemma-4}
+      LITELLM_EMBEDDING_BACKEND_MODEL: ${LITELLM_EMBEDDING_BACKEND_MODEL:-openai/text-embedding-nomic}
+      LLM_MODEL: ${LLM_MODEL:-chat-default}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embedding-default}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?LANGFUSE_PUBLIC_KEY must be set in .env}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?LANGFUSE_SECRET_KEY must be set in .env}
+    depends_on:
+      langfuse:
         condition: service_healthy
 
   pythonapi-db:
@@ -90,23 +147,23 @@ services:
   langfuse:
     image: langfuse/langfuse:2
     ports:
-      - "3001:3000"
+      - "4002:3000"
     environment:
       DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3001}
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-langfuse-nextauth-secret}
-      SALT: ${SALT:-dev-langfuse-salt}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:4002}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set in .env}
+      SALT: ${SALT:?SALT must be set in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set in .env}
       HOSTNAME: 0.0.0.0
       LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-local-org}
       LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-Local Org}
       LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-pythonapi}
       LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-pythonapi}
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-lf_pk_local_pythonapi}
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-lf_sk_local_pythonapi}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?LANGFUSE_PUBLIC_KEY must be set in .env}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?LANGFUSE_SECRET_KEY must be set in .env}
       LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@example.com}
-      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Local Admin}
-      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-changeme123}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?LANGFUSE_INIT_USER_PASSWORD must be set in .env}
     depends_on:
       langfuse-db:
         condition: service_healthy
@@ -127,3 +184,4 @@ volumes:
   pythonapi-postgres:
   qdrant-data:
   redis-data:
+  hf-cache:

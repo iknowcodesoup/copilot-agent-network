@@ -18,6 +18,8 @@ class PostgresDocumentRepository:
         stmt = insert(DocumentRow).values(
             id=document.id,
             title=document.title,
+            filename=document.filename,
+            raw_content=document.raw_content,
             content=document.content,
             status=document.status.value,
             chunk_count=document.chunk_count,
@@ -28,6 +30,7 @@ class PostgresDocumentRepository:
             index_elements=[DocumentRow.id],
             set_={
                 "title": stmt.excluded.title,
+                # raw_content/filename intentionally excluded: immutable post-upload.
                 "content": stmt.excluded.content,
                 "status": stmt.excluded.status,
                 "chunk_count": stmt.excluded.chunk_count,
@@ -89,13 +92,19 @@ class PostgresDocumentRepository:
                     "document_id": chunk.document_id,
                     "chunk_index": chunk.index,
                     "text": chunk.text,
+                    "headings": chunk.headings,
+                    "page_no": chunk.page_no,
                 }
                 for chunk in chunks
             ]
         )
         stmt = stmt.on_conflict_do_update(
             index_elements=[ChunkRow.id],
-            set_={"text": stmt.excluded.text},
+            set_={
+                "text": stmt.excluded.text,
+                "headings": stmt.excluded.headings,
+                "page_no": stmt.excluded.page_no,
+            },
         )
         async with AsyncSession(self._engine) as session:
             await session.execute(stmt)
@@ -130,6 +139,8 @@ class PostgresDocumentRepository:
         return Document(
             id=row.id,
             title=row.title,
+            filename=row.filename,
+            raw_content=row.raw_content,
             content=row.content,
             status=DocumentStatus(row.status),
             chunk_count=row.chunk_count,
@@ -144,4 +155,6 @@ class PostgresDocumentRepository:
             document_id=row.document_id,
             index=row.chunk_index,
             text=row.text,
+            headings=row.headings or [],
+            page_no=row.page_no,
         )

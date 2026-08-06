@@ -1,0 +1,19 @@
+model_list:
+  - model_name: os.environ/LLM_MODEL
+    litellm_params:
+      model: os.environ/LITELLM_CHAT_BACKEND_MODEL
+      api_base: os.environ/LITELLM_UPSTREAM_API_BASE
+      api_key: os.environ/LITELLM_UPSTREAM_API_KEY
+
+  - model_name: os.environ/EMBEDDING_MODEL
+    litellm_params:
+      model: os.environ/LITELLM_EMBEDDING_BACKEND_MODEL
+      api_base: os.environ/LITELLM_UPSTREAM_API_BASE
+      api_key: os.environ/LITELLM_UPSTREAM_API_KEY
+
+litellm_settings:
+  drop_params: true
+  success_callback: ["langfuse"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

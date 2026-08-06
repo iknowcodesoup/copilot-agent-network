@@ -1,83 +1,116 @@
 ---
-name: gang-of-four-patterns-reference
-description: This skill provides guidance for designing new classes or components, reviewing architecture, naming services/repositories/handlers, or refactoring existing code structure. Use pattern-based names instead of generic "Service", "Manager", or "Helper" suffixes.
+name: gof-patterns
+description: This skill provides guidance for designing new classes or components, reviewing architecture, naming repositories/gateways/pipelines, or refactoring existing code structure. Use pattern-based names instead of generic "Service", "Manager", or "Helper" suffixes.
 ---
 
 ## Steps
 
 ### 1. Avoid Generic Nomenclature
 
-Generic class names like `Service`, `Utility`, `Manager`, or `Helper` are a code smell indicating lack of clear responsibility. This breeds God Objects, SRP violations, and unmaintainable code.
+Generic names like `Service`, `Utility`, `Manager`, or `Helper` are a code
+smell. They show the class has no clear responsibility. This breeds God
+Objects and code that no one can safely change.
 
-**Always prefer specific, intent-revealing names based on Gang of Four patterns.**
+**Always prefer a specific, intent-revealing name based on a Gang of Four
+pattern.**
+
+Python has module-level functions. A class that only holds static methods is
+not a pattern. It is a namespace. Use a module instead. See the
+`naming-conventions` skill, step 6.
 
 ### 2. Pattern Reference
 
-| Pattern       | Purpose                                            | When to Use                                                  |
-| ------------- | -------------------------------------------------- | ------------------------------------------------------------ |
-| **Adapter**   | Convert interface of class into another            | Integrating external APIs with incompatible interfaces       |
-| **Observer**  | Define one-to-many dependency for state changes    | Publishing events to multiple subscribers                    |
-| **Facade**    | Provide unified interface to subsystem             | Simplifying complex subsystems with many dependencies        |
-| **Proxy**     | Provide surrogate/placeholder for expensive object | Adding caching, lazy loading, or access control              |
-| **Mediator**  | Encapsulate how objects interact                   | Coordinating interactions between multiple objects           |
-| **Memento**   | Capture/restore object state                       | Implementing undo/redo or state snapshots                    |
-| **Provider**  | Supplies instances or state of a particular type   | Supplying configuration, health status, or computed state    |
-| **Strategy**  | Define interchangeable algorithms                  | Selecting runtime behavior from multiple algorithms          |
-| **Factory**   | Create objects without specifying exact classes    | Creating complex objects with dependencies                   |
-| **Gateway**   | Encapsulate access to external system              | Abstracting external system communication (BLE, HTTP, cloud) |
-| **Command**   | Encapsulate request as object                      | Making requests queue-able, undoable, or log-able            |
-| **Builder**   | Construct complex objects step by step             | Objects with many optional parameters                        |
-| **Decorator** | Add responsibilities to objects dynamically        | Adding cross-cutting concerns (logging, retry, validation)   |
-| **Chain**     | Pass request along chain of handlers               | Processing requests through multiple handlers                |
+| Pattern        | Purpose                                          | When to Use in This Repo                                      |
+| -------------- | ------------------------------------------------ | ------------------------------------------------------------- |
+| **Adapter**    | Convert one interface into another               | Mapping AG-UI messages to OpenAI messages                     |
+| **Gateway**    | Encapsulate access to an external system         | Wrapping the LiteLLM, Qdrant, or Langfuse API                 |
+| **Repository** | Persist and retrieve domain objects              | Any SQLAlchemy or Qdrant read/write                           |
+| **Pipeline**   | Run an ordered set of stages over one input      | Retrieve, rerank, then generate                               |
+| **Facade**     | Give one simple interface to a complex subsystem | Hiding Docling's converter and chunker behind one entry point |
+| **Proxy**      | Stand in for an expensive object                 | Caching search results, lazy-loading a model                  |
+| **Strategy**   | Swap interchangeable algorithms at runtime       | Choosing a reranker or an embedding provider                  |
+| **Factory**    | Create objects without naming the exact class    | `build_*_client()` functions in `infrastructure/`             |
+| **Provider**   | Supply an instance or computed state             | FastAPI dependencies in `dependencies.py`                     |
+| **Observer**   | Notify many subscribers of a change              | Fanning out run events to listeners                           |
+| **Decorator**  | Add behavior around an existing object           | Retry, tracing, or rate limiting around a client              |
+| **Chain**      | Pass a request through a series of handlers      | ASGI middleware, multi-stage document processing              |
+| **Builder**    | Construct a complex object step by step          | Assembling a LangGraph graph or a Qdrant filter               |
+| **Command**    | Wrap a request as an object                      | A queued embedding job                                        |
+| **Mediator**   | Coordinate how several objects interact          | Orchestrating multiple agents                                 |
 
 ### 3. Decision Tree for Naming
 
-Ask these questions in order to identify the right pattern-based name:
+Ask these questions in order.
 
-1. **Does it adapt/convert interfaces?** -> **Adapter** (`CloudWatchMetricsAdapter`, `BleMessageAdapter`)
-2. **Does it publish events/notify others?** -> **Observer** (`JobAlertPublisher`, `NotificationPublisher`)
-3. **Does it simplify a complex subsystem?** -> **Facade** (`MetricsFacade`, `AudioStreamFacade`)
-4. **Does it cache/proxy expensive access?** -> **Proxy** (`BitmapCacheProxy`, `ConnectionProxy`)
-5. **Does it coordinate interactions?** -> **Mediator** (`AlarmMediator`, `DeviceConnectionMediator`)
-6. **Does it capture/restore state?** -> **Memento** (`ClipboardMemento`, `DeviceStateMemento`)
-7. **Does it manage memento lifecycle?** -> **Caretaker** (`HistoryCaretaker`, `SessionCaretaker`)
-8. **Does it supply instances/state?** -> **Provider** (`HealthStatusProvider`, `ConfigProvider`)
-9. **Does it access external systems/APIs?** -> **Gateway** (`BleGateway`, `CloudGateway`)
-10. **Does it persist/retrieve data?** -> **Repository** (`DeviceRepository`, `ConfigRepository`)
-11. **Does it create complex objects?** -> **Factory** (`DeviceFactory`, `CodecFactory`)
-12. **Does it encapsulate an action?** -> **Command** (`ConnectDeviceCommand`, `SendAudioCommand`)
-13. **Does it add behavior to existing object?** -> **Decorator** (`RetryDecorator`, `LoggingDecorator`)
-14. **Does it select an algorithm at runtime?** -> **Strategy** (`CompressionStrategy`, `EncryptionStrategy`)
-15. **Does it process through multiple handlers?** -> **Chain of Responsibility** (`AudioProcessorChain`)
+1. **Does it read or write persistent data?** → **Repository**
+   (`PostgresDocumentRepository`, `PostgresPiiVaultRepository`)
+2. **Does it talk to an external system over the network?** → **Gateway** or
+   **Index** (`QdrantEmbeddingIndex`, `LiteLlmGateway`)
+3. **Does it run ordered stages over one input?** → **Pipeline**
+   (`RagPipeline`)
+4. **Does it construct a client or resource?** → a `build_*` **Factory**
+   function (`build_postgres_engine`, `build_qdrant_client`)
+5. **Does it convert one shape into another?** → **Adapter** or a `to_*`
+   function (`_to_openai_messages`)
+6. **Does it select an algorithm at runtime?** → **Strategy**
+   (`CrossEncoderReranker`, `LexicalOverlapReranker`)
+7. **Does it supply a dependency to a route?** → **Provider**
+   (`get_document_repository`)
+8. **Does it add behavior around an existing object?** → **Decorator**
+9. **Does it wrap a queued unit of work?** → **Command** or **Worker**
+   (`EmbeddingWorkerPool`)
+10. **Does it hide a complex subsystem?** → **Facade**
 
-If none fit, reconsider class design - it may be mixing concerns.
+If none fit, the class is mixing concerns. Split it.
 
 ### 4. Naming Examples
 
-| Bad (Generic)               | Good (Pattern-Based)       | Pattern    |
-| --------------------------- | -------------------------- | ---------- |
-| `IHealthCheckService`       | `IHealthStatusProvider`    | Provider   |
-| `ICloudWatchMetricsService` | `IMetricsFacade`           | Facade     |
-| `CloudWatchMetricsService`  | `CloudWatchMetricsAdapter` | Adapter    |
-| `BleService`                | `BleGateway`               | Gateway    |
-| `ConfigService`             | `AppConfigRepository`      | Repository |
-| `audio_processor_service`   | `AudioProcessorChain`      | Chain      |
-| `device_connection_manager` | `DeviceConnectionMediator` | Mediator   |
-| `codec_util`                | `CodecFactory`             | Factory    |
-| `connection_helper`         | `ConnectionRetryDecorator` | Decorator  |
+| Bad (Generic)         | Good (Pattern-Based)         | Pattern    |
+| --------------------- | ---------------------------- | ---------- |
+| `VectorService`       | `QdrantEmbeddingIndex`       | Repository |
+| `DocumentManager`     | `PostgresDocumentRepository` | Repository |
+| `RagService`          | `RagPipeline`                | Pipeline   |
+| `EmbeddingHelper`     | `EmbeddingClient`            | Gateway    |
+| `RerankUtil`          | `CrossEncoderReranker`       | Strategy   |
+| `LlmService`          | `AnswerGenerator`            | Gateway    |
+| `PiiUtils`            | `PiiMasker`                  | Facade     |
+| `DbConnectionManager` | `build_postgres_engine`      | Factory    |
+| `WorkerManager`       | `EmbeddingWorkerPool`        | Command    |
+| `ChatService`         | `run_chat_agent`             | (function) |
 
-### 5. In Specs: Class Design Template
+### 5. Respect the Layer Boundaries
 
-When proposing new classes in specs, use this template:
+The pattern name must match the layer the class lives in.
+
+```mermaid
+flowchart LR
+    R["routes/"] --> C["core/"]
+    C --> RE["repositories/"]
+    RE --> I["infrastructure/"]
+```
+
+| Layer             | Allowed patterns                    | Never                      |
+| ----------------- | ----------------------------------- | -------------------------- |
+| `routes/`         | thin handlers only                  | business logic, SQL        |
+| `core/`           | Pipeline, Strategy, Facade, Adapter | direct client construction |
+| `repositories/`   | Repository, Index                   | HTTP concerns              |
+| `infrastructure/` | Factory functions, Gateway          | domain rules               |
+
+Never import in the other direction. `core/` must not import from `routes/`.
+
+### 6. In Specs: Component Design Template
+
+When you propose a new class in a spec, use this template.
 
 ```markdown
 ### Component: [PatternBasedName]
 
 **Pattern**: [Pattern name from Gang of Four]
+**Layer**: [routes | core | repositories | infrastructure]
 **Responsibility**: [What it owns]
-**Delegates**: [What it doesn't own]
+**Delegates**: [What it does not own]
 **Rejected alternatives**:
 
-- [bad_name_with_underscores] (underscores)
 - [GenericServiceName] (generic, unclear responsibility)
+- [WrongLayerName] (belongs in a different layer)
 ```

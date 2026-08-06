@@ -81,11 +81,13 @@ Use a numbered list for a sequence of steps. Do not describe a sequence in one p
 
 ## Applies To
 
-| Output Type     | Examples                                              |
-| --------------- | ----------------------------------------------------- |
-| Chat responses  | Explanations, status updates, summaries               |
-| Code comments   | The rare comment that explains a non-obvious reason   |
-| Commit messages | Subject line and body                                 |
-| PR descriptions | Summary and test plan                                 |
-| Spec prose      | Context, Goal, Design, and Notes sections             |
-| UI copy         | `AppStrings.resx` values, error messages, dialog text |
+| Output Type     | Examples                                             |
+| --------------- | ---------------------------------------------------- |
+| Chat responses  | Explanations, status updates, summaries              |
+| Code comments   | The rare comment that explains a non-obvious reason  |
+| Commit messages | Subject line and body                                |
+| PR descriptions | Summary and test plan                                |
+| Spec prose      | Context, Goal, Design, and Notes sections            |
+| UI copy         | React labels, error messages, dialog text            |
+| API responses   | FastAPI `detail` strings, validation messages        |
+| Log messages    | `logger.info`, `logger.warning`, `logger.error` text |

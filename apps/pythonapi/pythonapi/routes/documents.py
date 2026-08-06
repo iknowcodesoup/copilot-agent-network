@@ -31,21 +31,16 @@ async def upload_document(
     worker_pool: EmbeddingWorkerPool = Depends(get_worker_pool),
 ):
     raw = await file.read()
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(
-            status_code=400, detail="File must be UTF-8 encoded text"
-        ) from exc
-
-    if not text.strip():
+    if not raw.strip():
         raise HTTPException(status_code=400, detail="File is empty")
 
     document_id = uuid.uuid4().hex
+    filename = file.filename or document_id
     document = Document(
         id=document_id,
-        title=file.filename or document_id,
-        content=text,
+        title=filename,
+        filename=filename,
+        raw_content=raw,
         status=DocumentStatus.PENDING,
     )
     await repository.save_document(document)

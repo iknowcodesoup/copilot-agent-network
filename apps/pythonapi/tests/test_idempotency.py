@@ -16,8 +16,8 @@ def test_repeated_request_with_same_key_is_not_reprocessed(client, fake_redis):
     headers = {"Idempotency-Key": "test-key-1"}
     payload = {"name": "Widget", "itemId": 42}
 
-    first = client.post("/orders", json=payload, headers=headers)
-    second = client.post("/orders", json=payload, headers=headers)
+    first = client.post("/api/orders", json=payload, headers=headers)
+    second = client.post("/api/orders", json=payload, headers=headers)
 
     assert first.status_code == 201
     assert second.status_code == 201
@@ -31,7 +31,7 @@ def test_requests_without_key_are_each_processed(client, fake_redis):
     app.dependency_overrides[get_required_order_repository] = InMemoryOrderRepository
     payload = {"name": "Widget", "itemId": 42}
 
-    first = client.post("/orders", json=payload)
-    second = client.post("/orders", json=payload)
+    first = client.post("/api/orders", json=payload)
+    second = client.post("/api/orders", json=payload)
 
     assert first.json()["id"] != second.json()["id"]
