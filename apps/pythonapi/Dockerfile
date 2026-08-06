@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir uv
 
 COPY apps/pythonapi/pyproject.toml ./pyproject.toml
 COPY apps/pythonapi/README.md ./README.md
+COPY apps/pythonapi/uv.lock ./uv.lock
 COPY apps/pythonapi/pythonapi ./pythonapi
 RUN uv sync --no-dev
 

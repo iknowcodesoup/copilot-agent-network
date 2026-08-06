@@ -3,8 +3,12 @@
   "version": "0.0.0",
   "license": "MIT",
   "private": true,
+  "packageManager": "pnpm@11.15.1",
   "scripts": {},
   "dependencies": {
+    "@copilotkit/react-core": "^1.66.0",
+    "@copilotkit/react-ui": "^1.66.0",
+    "@copilotkit/runtime": "^1.66.0",
     "next": "~16.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -51,8 +55,5 @@
     "tslib": "^2.3.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.58.0"
-  },
-  "workspaces": [
-    "apps/*"
-  ]
+  }
 }

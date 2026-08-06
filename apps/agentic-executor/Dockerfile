@@ -1,13 +1,16 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
-RUN npm install -g npm@11.7.0
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN corepack enable && corepack prepare pnpm@11.15.1 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/agentic-executor/package.json ./apps/agentic-executor/package.json
+COPY apps/agentic-executor-e2e/package.json ./apps/agentic-executor-e2e/package.json
+RUN pnpm install --frozen-lockfile
 
 FROM node:22-alpine AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/agentic-executor/node_modules ./apps/agentic-executor/node_modules
 RUN npx nx build @agentic-executor/agentic-executor
 
 FROM node:22-alpine AS runner
