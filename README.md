@@ -96,10 +96,12 @@ the models that LiteLLM points to.
 # 1. Install JavaScript dependencies
 pnpm install
 
-# 2. Create your environment file
-Copy-Item .env.example .env
+# 2. Create your environment files
+Copy-Item .env.example .env.local
+Copy-Item apps/pythonapi/.env.example apps/pythonapi/.env.local
+Copy-Item apps/agentic-executor/.env.example apps/agentic-executor/.env.local
 
-# 3. Set the required secrets in .env (see Configuration below)
+# 3. Replace every `replace-me` in .env.local with a real secret
 
 # 4. Build and start the whole stack
 nx up apps
@@ -120,6 +122,9 @@ nx down apps     # stop the compose stack
 nx build apps    # build the Docker images only
 nx config apps   # print the resolved compose config
 ```
+
+Every target reads `.env.local` by default. Add `:production` to read `.env`
+instead, for example `nx up apps:production`.
 
 ### Python API
 
@@ -160,14 +165,15 @@ nx add pythonapi --name <package>  # Python, updates uv.lock
 
 ## Ports and endpoints
 
-| Service    | URL                      |
-| ---------- | ------------------------ |
-| Web app    | `http://localhost:4001`  |
-| Python API | `http://localhost:8000`  |
-| LiteLLM    | `http://localhost:4000`  |
-| Langfuse   | `http://localhost:4002`  |
-| Qdrant     | `http://localhost:6333`  |
-| Redis      | `localhost:6379`         |
+| Service       | URL                      |
+| ------------- | ------------------------ |
+| Web app       | `http://localhost:4001`  |
+| Python API    | `http://localhost:8000`  |
+| LiteLLM       | `http://localhost:4000`  |
+| Langfuse      | `http://localhost:4002`  |
+| Qdrant        | `http://localhost:6333`  |
+| Redis         | `localhost:6379`         |
+| Voice factory | `http://localhost:8100`  |
 
 The API mounts every router under `/api`. OpenAPI docs are at
 `http://localhost:8000/docs`.
@@ -186,6 +192,43 @@ The API mounts every router under `/api`. OpenAPI docs are at
 | POST   | `/api/v1/chat/completions`  | OpenAI-compatible chat         |
 | POST   | `/api/v1/responses`         | OpenAI-compatible responses    |
 | POST   | `/api/v1/embeddings`        | OpenAI-compatible embeddings   |
+
+### Voice models
+
+`/api/voice` builds a text-to-speech model from a YouTube video. The pipeline
+runs in the separate `star-trek-voyicer` repository, on the host, because
+training needs an NVIDIA GPU and Docker. Set `VOICE_FACTORY_URL` to reach it.
+Unset, every route below answers 503 and nothing else is affected.
+
+| Method | Path                                       | Purpose                       |
+| ------ | ------------------------------------------ | ----------------------------- |
+| GET    | `/api/voice/search`                        | Search YouTube for a video    |
+| GET    | `/api/voice/characters`                    | Characters with a dataset     |
+| POST   | `/api/voice/runs`                          | Start a run                   |
+| GET    | `/api/voice/runs`                          | List runs                     |
+| GET    | `/api/voice/runs/{id}`                     | Get one run                   |
+| DELETE | `/api/voice/runs/{id}`                     | Cancel and delete a run       |
+| GET    | `/api/voice/runs/{id}/speakers`            | Clips grouped by speaker      |
+| PATCH  | `/api/voice/runs/{id}/clips`               | Keep, reject, or reassign     |
+| POST   | `/api/voice/runs/{id}/approve`             | End review and start training |
+| GET    | `/api/voice/runs/{id}/clips/{clip}/audio`  | Play one clip                 |
+| GET    | `/api/voice/runs/{id}/logs`                | Tail the running job          |
+| GET    | `/api/voice/runs/{id}/training`            | Epoch, loss, and checkpoints  |
+
+The dashboard is at `http://localhost:4001/voices`. A run walks through these
+phases, and stops at `awaiting_review` until a person approves the clips:
+
+```mermaid
+stateDiagram-v2
+    [*] --> downloading
+    downloading --> diarizing
+    diarizing --> awaiting_review
+    awaiting_review --> committing: operator approves
+    committing --> training
+    training --> exporting
+    exporting --> ready
+    ready --> [*]
+```
 
 ---
 
@@ -211,32 +254,73 @@ Examples:
 
 ## Configuration
 
-Copy `.env.example` to `.env` before you start the stack. Compose reads that
-file. The Python service reads the same values through the `Settings` class in
-`apps/pythonapi/pythonapi/config.py`.
+Defaults live in `Settings` (`apps/pythonapi/pythonapi/config.py`). The service
+boots with no environment file at all, on offline mock providers and an
+in-memory Qdrant — that is what `pytest` and `nx serve pythonapi` use. An
+environment variable is an override, never a requirement.
 
-These keys have no default. Compose fails to start without them:
+Three locations, one name. Copy each `.env.example` to `.env.local` beside it.
 
-- `LITELLM_MASTER_KEY`
-- `LITELLM_UPSTREAM_API_KEY`
-- `LANGFUSE_PUBLIC_KEY`
-- `LANGFUSE_SECRET_KEY`
-- `NEXTAUTH_SECRET`
-- `SALT`
-- `ENCRYPTION_KEY`
-- `LANGFUSE_INIT_USER_PASSWORD`
+| Location                 | Holds                           |
+| ------------------------ | ------------------------------- |
+| repo root                | Shared values and every secret  |
+| `apps/pythonapi/`        | Compose overrides only, 10 keys |
+| `apps/agentic-executor/` | Web runtime settings            |
 
-Other useful keys:
+Each location takes two files. `.env` is for the production pipeline.
+`.env.local` is for development and for `nx watch apps`. Compose reads both
+and a later file wins, so `.env.local` overrides `.env`.
 
-| Key                               | Purpose                                            |
-| --------------------------------- | -------------------------------------------------- |
-| `LITELLM_UPSTREAM_API_BASE`       | Model backend. Defaults to LM Studio on port 1234. |
-| `LITELLM_CHAT_BACKEND_MODEL`      | Chat model behind the `chat-default` alias.        |
-| `LITELLM_EMBEDDING_BACKEND_MODEL` | Embedding model behind `embedding-default`.        |
-| `NEXT_PUBLIC_PYTHON_API_URL`      | API base URL the browser calls.                    |
-| `CORS_ALLOW_ORIGINS`              | Comma-separated allowed origins.                   |
-| `PII_VAULT_ENCRYPTION_KEY`        | Key for the encrypted PII vault.                   |
-| `HF_TOKEN`                        | Hugging Face token for model downloads.            |
+Both are optional. Compose starts with neither file present, because `Settings`
+supplies every default. A production deployment can therefore ship no file at
+all and inject variables through its orchestrator instead.
+
+**To add a setting:** add the field to `Settings` with a default. Stop there.
+Add a key to an env file only if Docker needs a different value. A key that
+repeats a default is the duplication this layout exists to prevent.
+
+`tests/test_config.py` enforces that: it builds `Settings` with every variable
+stripped and fails if any field is `None` outside a documented allow-list.
+
+The root `.env.local` sets `NX_LOAD_DOT_ENV_FILES=false`. Nx loads `.env.local`
+and `.env` from the workspace root, so the rename alone hides nothing. Without
+the flag, `nx test pythonapi` inherits the compose host names and hangs trying
+to reach `redis` and `pythonapi-db`.
+
+### Two things that stay explicit
+
+LiteLLM and Langfuse keep `environment:` blocks in `docker-compose.yml`. They
+need renamed keys, and `env_file:` passes names verbatim. The vendor fixes those
+names, so that list does not drift as this codebase changes.
+
+Leave an optional key commented out to keep it unset. An empty value is not the
+same: `Settings` reads `EMBEDDING_DIM=` as `""` and fails to parse it.
+
+### Keys worth knowing
+
+| Key                               | Location                 | Purpose                             |
+| --------------------------------- | ------------------------ | ----------------------------------- |
+| `LLM_MODEL`, `EMBEDDING_MODEL`    | repo root                | Gateway model aliases               |
+| `LITELLM_UPSTREAM_API_BASE`       | repo root                | Model backend, LM Studio on 1234    |
+| `LITELLM_CHAT_BACKEND_MODEL`      | repo root                | Chat model behind `chat-default`    |
+| `LITELLM_EMBEDDING_BACKEND_MODEL` | repo root                | Model behind `embedding-default`    |
+| `LLM_API_KEY`                     | repo root                | Gateway key                         |
+| `PII_VAULT_ENCRYPTION_KEY`        | repo root                | Key for the encrypted PII vault     |
+| `HF_TOKEN`                        | repo root                | Hugging Face model downloads        |
+| `EMBEDDING_DIM`                   | `apps/pythonapi/`        | Vector size, must match provider    |
+| `CORS_ALLOW_ORIGINS`              | `apps/pythonapi/`        | Comma-separated allowed origins     |
+| `NEXT_PUBLIC_PYTHON_API_URL`      | `apps/agentic-executor/` | API base URL the browser calls      |
+
+Three of these need more than a line:
+
+- **`LLM_MODEL` and `EMBEDDING_MODEL`** name the same aliases twice. LiteLLM
+  publishes them and pythonapi asks for them by name, so both services must use
+  the same strings. That is why they sit in the shared root file.
+- **`LLM_API_KEY`** is the gateway key. Compose passes the same value to the
+  LiteLLM container under its own name, `LITELLM_MASTER_KEY`.
+- **`EMBEDDING_DIM`** must match the active provider: 64 for the mock, 768 for
+  nomic-embed. Qdrant fixes a collection's vector size when it creates the
+  collection, so delete the collection after you change this.
 
 Optional integrations degrade, they do not crash. Redis, Langfuse, and
 Postgres can all stay unset. Qdrant always works through embedded `:memory:`.

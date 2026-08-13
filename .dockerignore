@@ -1,3 +1,10 @@
+# The web Dockerfile does `COPY . .`, so without these the secrets in .env
+# would bake into an image layer. Compose injects them at run time instead.
+.env
+.env.*
+apps/*/.env
+apps/*/.env.*
+
 .git
 .next
 .nx

@@ -98,9 +98,7 @@ async def search_and_generate(
     )
 
     context = "\n\n".join(result.text for result in results)  # masked chunk text only
-    raw_answer = await answer_generator.generate(
-        context=context, question=masked_query
-    )
+    raw_answer = await answer_generator.generate(context=context, question=masked_query)
 
     if pii_masker is not None:
         results = [

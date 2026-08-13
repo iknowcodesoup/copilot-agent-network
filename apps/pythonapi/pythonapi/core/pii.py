@@ -68,11 +68,7 @@ class PiiMasker:
                 )
                 operators[result.entity_type] = OperatorConfig(
                     "custom",
-                    {
-                        "lambda": lambda x, et=result.entity_type: self._token_for(
-                            et, x
-                        )
-                    },
+                    {"lambda": lambda x, et=result.entity_type: self._token_for(et, x)},
                 )
             anonymized = self._anonymizer.anonymize(
                 text=text, analyzer_results=results, operators=operators

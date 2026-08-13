@@ -25,6 +25,9 @@ from pythonapi.core.embeddings import EmbeddingClient
 from pythonapi.core.generation import AnswerGenerator
 from pythonapi.core.pii import PiiMasker
 from pythonapi.core.reranking import CrossEncoderReranker, LexicalOverlapReranker
+from pythonapi.core.voice_events import VoiceEventStream
+from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
+from pythonapi.core.voice_pipeline_graph import build_voice_pipeline_graph
 from pythonapi.infrastructure.langfuse_client import (
     build_langfuse_client,
     close_langfuse_client,
@@ -38,7 +41,15 @@ from pythonapi.infrastructure.qdrant_client import (
     close_qdrant_client,
     ensure_chunk_collection,
 )
-from pythonapi.infrastructure.redis_client import build_redis_client, close_redis_client
+from pythonapi.infrastructure.redis_client import (
+    build_blocking_redis_client,
+    build_redis_client,
+    close_redis_client,
+)
+from pythonapi.infrastructure.voice_factory_client import (
+    build_voice_factory_client,
+    close_voice_factory_client,
+)
 from pythonapi.middleware.idempotency import IdempotencyMiddleware
 from pythonapi.repositories.memory import InMemoryDocumentRepository
 from pythonapi.repositories.orders import PostgresOrderRepository
@@ -48,8 +59,21 @@ from pythonapi.repositories.pii_vault import (
 )
 from pythonapi.repositories.postgres import PostgresDocumentRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
-from pythonapi.routes import agent, documents, health, openai_proxy, orders, search
+from pythonapi.repositories.voice_runs import (
+    InMemoryVoiceRunRepository,
+    PostgresVoiceRunRepository,
+)
+from pythonapi.routes import (
+    agent,
+    documents,
+    health,
+    openai_proxy,
+    orders,
+    search,
+    voice,
+)
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
+from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
 
 logger = logging.getLogger("uvicorn")
 
@@ -58,6 +82,12 @@ logger = logging.getLogger("uvicorn")
 async def lifespan(app: FastAPI):
     """Manage runtime integrations and background resources."""
     app.state.redis = build_redis_client(settings)
+    # A second pool, for the voice SSE tail read only. It parks for a whole
+    # heartbeat window at a time, which the general client's socket timeout is
+    # deliberately too short to allow.
+    app.state.blocking_redis = build_blocking_redis_client(
+        settings, block_seconds=settings.VOICE_EVENT_HEARTBEAT_SECONDS
+    )
     app.state.langfuse = build_langfuse_client(settings)
 
     if app.state.redis is not None:
@@ -177,9 +207,46 @@ async def lifespan(app: FastAPI):
     )
     app.state.worker_pool.start()
 
+    app.state.voice_factory_client = build_voice_factory_client(settings)
+    app.state.voice_factory_gateway = (
+        VoiceFactoryGateway(app.state.voice_factory_client)
+        if app.state.voice_factory_client is not None
+        else None
+    )
+    app.state.voice_run_repository = (
+        PostgresVoiceRunRepository(app.state.postgres_engine)
+        if app.state.postgres_engine is not None
+        else InMemoryVoiceRunRepository()
+    )
+    # Fan-out for voice run changes. Redis is optional here as everywhere: with
+    # it, a change made by any API instance reaches every browser; without it,
+    # the pipeline still runs and the page falls back to a reload.
+    app.state.voice_event_stream = VoiceEventStream(
+        redis=app.state.redis,
+        blocking_redis=app.state.blocking_redis,
+        stream_key=settings.VOICE_EVENT_STREAM_KEY,
+        max_length=settings.VOICE_EVENT_STREAM_MAX_LENGTH,
+    )
+    app.state.voice_run_reconciler = None
+    if app.state.voice_factory_gateway is not None:
+        app.state.voice_run_reconciler = VoiceRunReconciler(
+            repository=app.state.voice_run_repository,
+            graph=build_voice_pipeline_graph(app.state.voice_factory_gateway),
+            interval_seconds=settings.VOICE_RECONCILE_INTERVAL_SECONDS,
+            event_stream=app.state.voice_event_stream,
+            lease_seconds=settings.VOICE_LEASE_SECONDS,
+            max_consecutive_errors=settings.VOICE_MAX_CONSECUTIVE_ERRORS,
+            gateway=app.state.voice_factory_gateway,
+        )
+        app.state.voice_run_reconciler.start()
+
     try:
         yield
     finally:
+        if app.state.voice_run_reconciler is not None:
+            await app.state.voice_run_reconciler.shutdown()
+        if app.state.voice_factory_client is not None:
+            await close_voice_factory_client(app.state.voice_factory_client)
         await app.state.worker_pool.shutdown()
         if app.state.openai_client is not None:
             await app.state.openai_client.close()
@@ -188,6 +255,8 @@ async def lifespan(app: FastAPI):
             await close_postgres_engine(app.state.postgres_engine)
         if app.state.redis is not None:
             await close_redis_client(app.state.redis)
+        if app.state.blocking_redis is not None:
+            await close_redis_client(app.state.blocking_redis)
         if app.state.langfuse is not None:
             close_langfuse_client(app.state.langfuse)
 
@@ -218,5 +287,6 @@ api_router.include_router(documents.router)
 api_router.include_router(search.router)
 api_router.include_router(openai_proxy.router)
 api_router.include_router(agent.router)
+api_router.include_router(voice.router)
 
 app.include_router(api_router)

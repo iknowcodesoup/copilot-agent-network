@@ -132,11 +132,15 @@ flowchart LR
 apps/
 ├── agentic-executor/            # Next.js 16 front end (port 4001)
 │   ├── specs/                   # Jest component tests
-│   └── src/app/
-│       ├── layout.tsx           # Wraps the tree in CopilotProvider
-│       ├── page.tsx
-│       └── features/            # Domain UI, grouped by feature
-│           └── chat/            # copilot_provider.tsx, chat_window.tsx
+│   └── src/
+│       ├── components/ui/       # shadcn (base-mira on Base UI, hugeicons)
+│       └── app/
+│           ├── layout.tsx       # QueryProvider + CopilotProvider + nav
+│           ├── page.tsx
+│           ├── voices/          # HIL dashboard for the TTS pipeline
+│           └── features/        # Domain UI, grouped by feature
+│               ├── chat/        # copilot_provider.tsx, chat_window.tsx
+│               └── voices/      # voice_api.ts, speaker_board.tsx, ...
 ├── agentic-executor-e2e/        # Playwright end-to-end tests
 └── pythonapi/                   # FastAPI service (port 8000)
     ├── baml_src/                # BAML source: clients, generators, rag
@@ -151,6 +155,8 @@ apps/
         │   ├── rag_pipeline.py  # Retrieve → rerank → generate
         │   ├── embeddings.py, reranking.py, generation.py
         │   ├── document_parsing.py, pii.py
+        │   ├── voice_factory_gateway.py   # Calls the voice factory host
+        │   ├── voice_pipeline_graph.py    # LangGraph, one node per phase
         ├── infrastructure/      # External client builders — one per system
         │   ├── postgres_client.py, qdrant_client.py
         │   ├── redis_client.py, langfuse_client.py
@@ -164,11 +170,87 @@ apps/
         │   ├── health.py, openai_proxy.py
         ├── middleware/          # idempotency.py
         └── workers/             # embedding_worker.py — background embed pool
+                                 # voice_run_reconciler.py — advances runs
 ```
 
 > `baml_client/` is generated from `baml_src/`. Regenerate it. Never hand-edit it.
 > Layer rule: `routes/` → `core/` → `repositories/` → `infrastructure/`.
 > Never import in the other direction.
+
+---
+
+## Voice Model Pipeline
+
+`/api/voice` turns a YouTube video into a fine-tuned Piper text-to-speech model.
+The pipeline itself lives in a **separate repository**, `star-trek-voyicer`.
+
+**Why it is split.** Training needs an NVIDIA GPU and Docker. The `pythonapi`
+container pins CPU-only torch and has no GPU access. So the pipeline runs on the
+host and this service orchestrates it over HTTP.
+
+Nothing polls. The factory pushes job changes over a webhook, and the browser
+holds one SSE connection.
+
+```mermaid
+flowchart LR
+    API["jeanlucrecord api.py<br/>(host, GPU)"] -->|webhook| HOOK["POST /api/voice/jobs/{id}/events"]
+    HOOK -->|wake| REC[VoiceRunReconciler]
+    REC --> GRAPH[LangGraph]
+    GRAPH --> GW[VoiceFactoryGateway]
+    GW -->|HTTP| API
+    API --> MAIN["main.py --stage ..."]
+    REC --> PG[("voice_runs.phase")]
+    REC --> RS[("Redis Stream<br/>voice:events")]
+    RS --> SSE["GET /api/voice/events"]
+    SSE --> TQ[TanStack Query]
+    TQ --> UI["/voices dashboard"]
+    TQ --> CK[CopilotKit]
+```
+
+**Key rules:**
+
+- `VOICE_FACTORY_URL` points at the control API. Unset, every `/api/voice` route
+  answers 503 and the reconciler never starts. Nothing else is affected.
+- The `voice_runs.phase` column **is** the state machine. There is no LangGraph
+  checkpointer. A run must survive a restart, because training takes days and a
+  human review can sit longer.
+- `VoiceRunReconciler` is the only writer of run phases. The webhook reports a
+  change and calls `wake(run_id)`; it never decides what the phase becomes. So a
+  lost webhook costs latency only - the reconcile timer is the backstop.
+- Redis carries events, never state. Losing Redis loses live updates and nothing
+  else, so a publishing failure is logged and swallowed. The Redis Stream ID is
+  the event ID and the SSE `id:`, which is why there is no sequence column.
+- Every SSE event carries the complete `VoiceRun`, never a patch. Applying one
+  twice lands on the same result, which is what makes reconnect replay cheap.
+- Several API instances can run at once. `voice_runs.leased_until` and
+  `lease_owner` are the mutual exclusion, claimed in one atomic UPDATE. The
+  lease expires on its own, so a dead instance never strands a run.
+- A transient factory error (refused, timed out, 5xx) holds the phase and bumps
+  `error_count`. Only `VOICE_MAX_CONSECUTIVE_ERRORS` in a row fail the run, and
+  `POST /api/voice/runs/{id}/retry` puts it back in `failed_from_phase`.
+- `AWAITING_REVIEW` is the only transition a person makes. The reconciler skips
+  that phase, plus `READY` and `FAILED`.
+- `review.csv` on the voice factory host stays the one source of truth for clip
+  decisions. This service stores run state and nothing on disk.
+- Training logs stay off the event stream. `GET /runs/{id}/logs` serves them, so
+  every browser does not pay for output one screen reads.
+- The browser never calls the voice factory. Clip audio proxies through
+  `/api/voice/runs/{id}/clips/{clip}/audio`, so there is one origin and one CORS
+  entry.
+
+`voice_runs` gained columns for this change. The project uses
+`Base.metadata.create_all`, which does not migrate an existing table, so drop
+and recreate it in development. Alembic is a separate task.
+
+To run the control API, in the `star-trek-voyicer` repo:
+
+```powershell
+just serve-jeanlucrecord    # http://127.0.0.1:8100
+```
+
+Set `VOICE_ORCHESTRATOR_WEBHOOK_URL` and `VOICE_WEBHOOK_TOKEN` there to turn
+webhooks on. The token must match `VOICE_WEBHOOK_TOKEN` here. Leave the URL
+unset and the factory behaves exactly as before.
 
 ---
 
@@ -212,6 +294,47 @@ Qdrant 6333 · Redis 6379
 ---
 
 ## Conventions
+
+### Configuration
+
+**Defaults live in `config.py`. An environment variable is an override, never
+a requirement.** The service must boot with no environment file at all.
+
+Three locations, one name: the repo root (shared values and secrets),
+`apps/pythonapi/`, and `apps/agentic-executor/`. Each holds an `.env.example`
+twin of two runtime files:
+
+- `.env` — the production pipeline.
+- `.env.local` — development, `nx up apps`, and `nx watch apps`.
+
+Compose lists both with `env_file:` and marks each `required: false`. A later
+file wins, so `.env.local` overrides `.env`. Neither has to exist.
+
+`--env-file` cannot be optional, so the Nx targets in `project.json` carry two
+configurations. `local` is the default and reads `.env.local`. `production`
+reads `.env`, as in `nx up apps:production`. Those flags feed compose
+interpolation, which the LiteLLM and Langfuse blocks and the
+`NEXT_PUBLIC_PYTHON_API_URL` build arg all need.
+
+- **To add a setting: add the field to `Settings` with a real default. Stop
+  there.** Add a key to an env file only when Docker needs a different value.
+  A key that repeats the default creates the second copy this layout removes.
+- Never write a bare `= None` default. A missing variable then reaches its
+  consumer as None and fails at the call site, far from the cause. `None` is
+  correct only for secrets and for integrations where it means "feature off".
+  `tests/test_config.py` enforces this and holds the allow-list.
+- The root `.env.local` sets `NX_LOAD_DOT_ENV_FILES=false`. Nx loads both
+  `.env.local` and `.env` from the workspace root, so the name hides nothing.
+  Without the flag `nx test pythonapi` inherits the compose host names and
+  hangs on `redis` and `pythonapi-db`.
+- Next.js reads `apps/agentic-executor/.env.local` before `.env`, and ignores
+  `.env.local` when `NODE_ENV` is `test`. `nx dev` and Jest need no extra flag.
+- Keep an optional key commented out to leave it unset. An empty value differs:
+  `Settings` reads `EMBEDDING_DIM=` as `""` and fails to parse it.
+- Only LiteLLM and Langfuse keep an `environment:` block. They need renamed
+  keys and `env_file:` passes names verbatim. Do not add app settings there.
+- `config.py` sets no pydantic `env_file` on purpose. A dotenv path would
+  resolve against the process CWD, not the package. Compose does the injecting.
 
 ### Python
 

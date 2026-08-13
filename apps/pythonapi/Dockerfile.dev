@@ -11,7 +11,9 @@ RUN pip install --no-cache-dir uv
 COPY apps/pythonapi/pyproject.toml ./pyproject.toml
 COPY apps/pythonapi/README.md ./README.md
 COPY apps/pythonapi/uv.lock ./uv.lock
+RUN uv venv --seed
 RUN uv sync
+RUN uv run python -m spacy download en_core_web_sm
 
 COPY apps/pythonapi/pythonapi ./pythonapi
 COPY apps/pythonapi/tests ./tests

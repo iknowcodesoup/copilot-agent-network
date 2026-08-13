@@ -18,11 +18,15 @@ from pythonapi.core.embeddings import EmbeddingClient
 from pythonapi.core.generation import AnswerGenerator
 from pythonapi.core.pii import PiiMasker
 from pythonapi.core.reranking import Reranker
+from pythonapi.core.voice_events import VoiceEventStream
+from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.repositories.base import DocumentRepository
 from pythonapi.repositories.orders import OrderRepository
 from pythonapi.repositories.pii_vault import PiiVaultRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
+from pythonapi.repositories.voice_runs import VoiceRunRepository
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
+from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
 
 
 def get_redis(request: Request) -> Redis | None:
@@ -75,6 +79,36 @@ def get_required_order_repository(request: Request) -> OrderRepository:
             detail="Postgres is not configured.",
         )
     return repository
+
+
+def get_required_voice_factory_gateway(request: Request) -> VoiceFactoryGateway:
+    gateway = request.app.state.voice_factory_gateway
+    if gateway is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The voice factory is not configured. Set VOICE_FACTORY_URL.",
+        )
+    return gateway
+
+
+def get_required_voice_run_repository(request: Request) -> VoiceRunRepository:
+    return request.app.state.voice_run_repository
+
+
+def get_required_voice_event_stream(request: Request) -> VoiceEventStream:
+    """Always present. Without Redis it publishes and replays nothing, so the
+    SSE route still opens and still sends its snapshot."""
+    return request.app.state.voice_event_stream
+
+
+def get_required_voice_run_reconciler(request: Request) -> VoiceRunReconciler:
+    reconciler = request.app.state.voice_run_reconciler
+    if reconciler is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The voice factory is not configured. Set VOICE_FACTORY_URL.",
+        )
+    return reconciler
 
 
 def get_search_cache(request: Request) -> LRUCache:

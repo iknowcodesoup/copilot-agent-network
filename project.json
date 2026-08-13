@@ -6,41 +6,95 @@
   "targets": {
     "config": {
       "executor": "nx:run-commands",
+      "defaultConfiguration": "local",
       "options": {
-        "cwd": ".",
-        "command": "docker compose config"
+        "cwd": "."
+      },
+      "configurations": {
+        "local": {
+          "command": "docker compose --env-file .env.local --env-file apps/agentic-executor/.env.local config"
+        },
+        "production": {
+          "command": "docker compose --env-file .env --env-file apps/agentic-executor/.env config"
+        }
       }
     },
     "build": {
       "executor": "nx:run-commands",
+      "defaultConfiguration": "local",
       "options": {
-        "cwd": ".",
-        "command": "docker compose build"
+        "cwd": "."
+      },
+      "configurations": {
+        "local": {
+          "command": "docker compose --env-file .env.local --env-file apps/agentic-executor/.env.local build"
+        },
+        "production": {
+          "command": "docker compose --env-file .env --env-file apps/agentic-executor/.env build"
+        }
       }
     },
     "up": {
       "executor": "nx:run-commands",
+      "defaultConfiguration": "local",
       "options": {
-        "cwd": ".",
-        "command": "docker compose up --build"
+        "cwd": "."
+      },
+      "configurations": {
+        "local": {
+          "command": "docker compose --env-file .env.local --env-file apps/agentic-executor/.env.local up --build"
+        },
+        "production": {
+          "command": "docker compose --env-file .env --env-file apps/agentic-executor/.env up --build"
+        }
       }
     },
     "watch": {
       "executor": "nx:run-commands",
+      "defaultConfiguration": "local",
       "options": {
-        "cwd": ".",
-        "command": "docker compose -f docker-compose.yml -f docker-compose.watch.yml up --watch"
+        "cwd": "."
+      },
+      "configurations": {
+        "local": {
+          "command": "docker compose --env-file .env.local --env-file apps/agentic-executor/.env.local -f docker-compose.yml -f docker-compose.watch.yml up --build --watch"
+        },
+        "production": {
+          "command": "docker compose --env-file .env --env-file apps/agentic-executor/.env -f docker-compose.yml -f docker-compose.watch.yml up --build --watch"
+        }
       }
     },
     "down": {
       "executor": "nx:run-commands",
+      "defaultConfiguration": "local",
       "options": {
-        "cwd": ".",
-        "command": "docker compose down"
+        "cwd": "."
+      },
+      "configurations": {
+        "local": {
+          "command": "docker compose --env-file .env.local --env-file apps/agentic-executor/.env.local down"
+        },
+        "production": {
+          "command": "docker compose --env-file .env --env-file apps/agentic-executor/.env down"
+        }
+      }
+    },
+
+    "watch-down": {
+      "executor": "nx:run-commands",
+      "defaultConfiguration": "local",
+      "options": {
+        "cwd": "."
+      },
+      "configurations": {
+        "local": {
+          "command": "docker compose -f docker-compose.watch.yml --env-file .env.local --env-file apps/agentic-executor/.env.local down"
+        },
+        "production": {
+          "command": "docker compose -f docker-compose.watch.yml --env-file .env --env-file apps/agentic-executor/.env down"
+        }
       }
     }
   },
-  "tags": [
-    "type:ops"
-  ]
+  "tags": ["type:ops"]
 }

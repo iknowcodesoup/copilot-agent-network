@@ -26,11 +26,10 @@ desktop.ini
 # ==============================================================================
 # Environment Variables
 # ==============================================================================
+# No slash, so these match at any depth, covering the per-app copies too.
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env*.example
 .venv/
 venv/
 ENV/
