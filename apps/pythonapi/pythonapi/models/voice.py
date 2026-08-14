@@ -52,6 +52,31 @@ class VideoSearchResponse(BaseModel):
     videos: list[VideoResult] = Field(default_factory=list)
 
 
+class VideoSummary(BaseModel):
+    """One ingested video, independent of any character.
+
+    Lets the dashboard offer an already-ingested video to a second character
+    without asking the factory to download or diarize it again.
+    """
+
+    video_id: str
+    diarized: bool = False
+    reviewed: bool = False
+    clip_count: int = 0
+
+
+class VideoSpeakerSummary(BaseModel):
+    """One speaker label detected in a video, before any run claims it.
+
+    speaker_label is None for the group no single speaker owns -- cross-talk
+    or music, same meaning as SpeakerGroup.speaker_label below.
+    """
+
+    speaker_label: str | None
+    clip_count: int
+    kept_count: int
+
+
 class VoiceRunRequest(BaseModel):
     """Start a run against one video."""
 

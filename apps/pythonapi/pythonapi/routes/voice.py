@@ -40,6 +40,8 @@ from pythonapi.models.voice import (
     SpeakerGroup,
     TrainingProgress,
     VideoSearchResponse,
+    VideoSpeakerSummary,
+    VideoSummary,
     VoiceLogChunk,
     VoiceRun,
     VoiceRunPhase,
@@ -98,6 +100,36 @@ async def list_characters(
 ):
     try:
         return await gateway.list_characters()
+    except VoiceFactoryError as error:
+        raise _unavailable(error) from error
+
+
+@router.get("/videos", response_model=list[VideoSummary])
+async def list_videos(
+    gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
+):
+    """Every ingested video, independent of any character (FR13).
+
+    Lets the dashboard offer an already-ingested video to a second character
+    without starting a run that would download or diarize it again.
+    """
+    try:
+        return await gateway.list_videos()
+    except VoiceFactoryError as error:
+        raise _unavailable(error) from error
+
+
+@router.get("/videos/{video_id}/speakers", response_model=list[VideoSpeakerSummary])
+async def get_video_speakers(
+    video_id: str,
+    gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
+):
+    """Detected speaker labels and clip counts for one video (FR13).
+
+    Lets the dashboard show what a video contains before any run claims it.
+    """
+    try:
+        return await gateway.get_video_speakers(video_id)
     except VoiceFactoryError as error:
         raise _unavailable(error) from error
 
@@ -183,7 +215,7 @@ async def get_speaker_board(
         raise HTTPException(status.HTTP_409_CONFLICT, "This run has no video yet")
 
     try:
-        clips = await gateway.get_clips(run.primary_character, run.video_id)
+        clips = await gateway.get_clips(run.video_id)
     except VoiceFactoryError as error:
         raise _unavailable(error) from error
 
@@ -228,10 +260,8 @@ async def update_clips(
         for decision in decisions_request.decisions
     ]
     try:
-        updated = await gateway.update_clips(
-            run.primary_character, run.video_id, payload
-        )
-        clips = await gateway.get_clips(run.primary_character, run.video_id)
+        updated = await gateway.update_clips(run.video_id, payload)
+        clips = await gateway.get_clips(run.video_id)
     except VoiceFactoryError as error:
         raise _unavailable(error) from error
 
@@ -266,9 +296,7 @@ async def approve_run(
         )
 
     try:
-        await gateway.set_speaker_map(
-            run.primary_character, run.video_id, assignment.speaker_map
-        )
+        await gateway.set_speaker_map(run.video_id, assignment.speaker_map)
     except VoiceFactoryError as error:
         raise _unavailable(error) from error
 
@@ -298,9 +326,7 @@ async def get_clip_audio(
         raise HTTPException(status.HTTP_409_CONFLICT, "This run has no video yet")
 
     async def stream_audio():
-        async with gateway.stream_clip_audio(
-            run.primary_character, run.video_id, clip_id
-        ) as response:
+        async with gateway.stream_clip_audio(run.video_id, clip_id) as response:
             response.raise_for_status()
             async for chunk in response.aiter_bytes(AUDIO_CHUNK_SIZE):
                 yield chunk

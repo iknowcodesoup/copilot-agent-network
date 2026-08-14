@@ -31,6 +31,8 @@ from pythonapi.models.voice import (
     ClipSummary,
     TrainingProgress,
     VideoResult,
+    VideoSpeakerSummary,
+    VideoSummary,
 )
 
 logger = logging.getLogger(__name__)
@@ -167,37 +169,47 @@ class VoiceFactoryGateway:
     async def cancel_job(self, job_id: str) -> None:
         await self._request("DELETE", f"/jobs/{job_id}")
 
-    async def get_clips(self, character: str, video_id: str) -> list[ClipSummary]:
-        payload = await self._request(
-            "GET", f"/characters/{character}/videos/{video_id}/clips"
-        )
+    async def list_videos(self) -> list[VideoSummary]:
+        """Every ingested video, independent of any character (FR13).
+
+        Lets the dashboard offer an already-ingested video to a second
+        character without asking the factory to download or diarize it again.
+        """
+        payload = await self._request("GET", "/videos")
+        return [VideoSummary(**video) for video in payload["videos"]]
+
+    async def get_video_speakers(self, video_id: str) -> list[VideoSpeakerSummary]:
+        payload = await self._request("GET", f"/videos/{video_id}/speakers")
+        return [VideoSpeakerSummary(**speaker) for speaker in payload["speakers"]]
+
+    async def get_clips(self, video_id: str) -> list[ClipSummary]:
+        payload = await self._request("GET", f"/videos/{video_id}/clips")
         return [ClipSummary(**clip) for clip in payload["clips"]]
 
-    async def update_clips(
-        self, character: str, video_id: str, decisions: list[dict]
-    ) -> int:
+    async def update_clips(self, video_id: str, decisions: list[dict]) -> int:
         payload = await self._request(
             "PATCH",
-            f"/characters/{character}/videos/{video_id}/clips",
+            f"/videos/{video_id}/clips",
             json={"decisions": decisions},
         )
         return payload["updated"]
 
     async def set_speaker_map(
-        self, character: str, video_id: str, speaker_map: dict[str, str | None]
+        self, video_id: str, speaker_map: dict[str, str | None]
     ) -> None:
         await self._request(
             "PUT",
-            f"/characters/{character}/videos/{video_id}/speaker-map",
+            f"/videos/{video_id}/speaker-map",
             json={"speaker_map": speaker_map},
         )
 
     async def get_training_progress(self, character: str) -> TrainingProgress:
+        # training has no video_id concept, so this stays character-scoped
         payload = await self._request("GET", f"/characters/{character}/training")
         return TrainingProgress(**payload)
 
     def stream_clip_audio(
-        self, character: str, video_id: str, clip_id: str
+        self, video_id: str, clip_id: str
     ) -> AbstractAsyncContextManager[httpx.Response]:
         """Open a streaming response for one clip's audio.
 
@@ -207,5 +219,5 @@ class VoiceFactoryGateway:
         """
         return self._client.stream(
             "GET",
-            f"/characters/{character}/videos/{video_id}/clips/{clip_id}/audio",
+            f"/videos/{video_id}/clips/{clip_id}/audio",
         )

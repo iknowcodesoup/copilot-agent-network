@@ -40,6 +40,8 @@ from pythonapi.models.voice import (
     ClipSummary,
     TrainingProgress,
     VideoResult,
+    VideoSpeakerSummary,
+    VideoSummary,
     VoiceRun,
     VoiceRunPhase,
 )
@@ -59,8 +61,16 @@ class FakeVoiceFactoryGateway:
         self.cancelled_jobs: list[str] = []
         self.job_states: dict[str, str] = {}
         self.clips: list[ClipSummary] = []
-        self.speaker_maps: list[tuple[str, str, dict]] = []
+        self.speaker_maps: list[tuple[str, dict]] = []
         self.clip_updates: list[list[dict]] = []
+        # video_id each call actually received, so a regression that
+        # reintroduces character-scoping on the real gateway shows up here
+        self.get_clips_video_ids: list[str] = []
+        self.update_clips_video_ids: list[str] = []
+        self.stream_clip_audio_video_ids: list[str] = []
+        self.videos: list[VideoSummary] = []
+        self.video_speakers: list[VideoSpeakerSummary] = []
+        self.clip_audio: bytes = b""
         self.next_job_id = 0
         self.fail_with: VoiceFactoryError | None = None
 
@@ -108,14 +118,22 @@ class FakeVoiceFactoryGateway:
         self._guard()
         self.cancelled_jobs.append(job_id)
 
-    async def get_clips(self, character: str, video_id: str) -> list[ClipSummary]:
+    async def list_videos(self) -> list[VideoSummary]:
         self._guard()
+        return list(self.videos)
+
+    async def get_video_speakers(self, video_id: str) -> list[VideoSpeakerSummary]:
+        self._guard()
+        return list(self.video_speakers)
+
+    async def get_clips(self, video_id: str) -> list[ClipSummary]:
+        self._guard()
+        self.get_clips_video_ids.append(video_id)
         return list(self.clips)
 
-    async def update_clips(
-        self, character: str, video_id: str, decisions: list[dict]
-    ) -> int:
+    async def update_clips(self, video_id: str, decisions: list[dict]) -> int:
         self._guard()
+        self.update_clips_video_ids.append(video_id)
         self.clip_updates.append(decisions)
         by_clip_id = {clip.clip_id: clip for clip in self.clips}
         for decision in decisions:
@@ -128,11 +146,9 @@ class FakeVoiceFactoryGateway:
                 clip.speaker_label = decision["speaker_label"]
         return len(decisions)
 
-    async def set_speaker_map(
-        self, character: str, video_id: str, speaker_map: dict
-    ) -> None:
+    async def set_speaker_map(self, video_id: str, speaker_map: dict) -> None:
         self._guard()
-        self.speaker_maps.append((character, video_id, speaker_map))
+        self.speaker_maps.append((video_id, speaker_map))
 
     async def get_training_progress(self, character: str) -> TrainingProgress:
         self._guard()
@@ -140,8 +156,32 @@ class FakeVoiceFactoryGateway:
             character=character, preprocessed=True, current_epoch=42
         )
 
+    def stream_clip_audio(self, video_id: str, clip_id: str):
+        self._guard()
+        self.stream_clip_audio_video_ids.append(video_id)
+        return _FakeAudioStream(self.clip_audio)
+
     def finish_latest_job(self, state: str = "succeeded") -> None:
         self.job_states[self.started_jobs[-1]["job_id"]] = state
+
+
+class _FakeAudioStream:
+    """Stands in for the httpx streaming response get_clip_audio forwards."""
+
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+
+    async def __aenter__(self) -> "_FakeAudioStream":
+        return self
+
+    async def __aexit__(self, *exc_info) -> bool:
+        return False
+
+    def raise_for_status(self) -> None:
+        return None
+
+    async def aiter_bytes(self, chunk_size: int):
+        yield self._content
 
 
 def clip(clip_id: str, speaker_label: str | None, keep: bool = True) -> ClipSummary:
@@ -244,6 +284,58 @@ def test_search_returns_videos(voice_client):
     assert body["videos"][0]["video_id"] == "vid_abc123"
 
 
+def test_list_videos_returns_every_ingested_video_with_no_character(
+    voice_client, gateway
+):
+    """FR13: browsing videos never scopes by character."""
+    gateway.videos = [
+        VideoSummary(video_id="vid_abc123", diarized=True, reviewed=True, clip_count=3)
+    ]
+
+    response = voice_client.get("/api/voice/videos")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "video_id": "vid_abc123",
+            "diarized": True,
+            "reviewed": True,
+            "clip_count": 3,
+        }
+    ]
+
+
+def test_get_video_speakers_returns_labels_and_clip_counts(voice_client, gateway):
+    gateway.video_speakers = [
+        VideoSpeakerSummary(speaker_label="SPEAKER_00", clip_count=2, kept_count=1)
+    ]
+
+    response = voice_client.get("/api/voice/videos/vid_abc123/speakers")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"speaker_label": "SPEAKER_00", "clip_count": 2, "kept_count": 1}
+    ]
+
+
+def test_list_videos_reports_502_when_the_factory_is_unreachable(voice_client, gateway):
+    gateway.fail_with = VoiceFactoryError("connection refused")
+
+    response = voice_client.get("/api/voice/videos")
+
+    assert response.status_code == 502
+
+
+def test_get_video_speakers_reports_502_when_the_factory_is_unreachable(
+    voice_client, gateway
+):
+    gateway.fail_with = VoiceFactoryError("connection refused")
+
+    response = voice_client.get("/api/voice/videos/vid_abc123/speakers")
+
+    assert response.status_code == 502
+
+
 def test_start_run_resolves_the_video_and_returns_202(voice_client, repository):
     response = voice_client.post(
         "/api/voice/runs",
@@ -300,6 +392,36 @@ async def test_speaker_board_groups_clips_and_puts_rejects_last(
 
 
 @pytest.mark.asyncio
+async def test_speaker_board_is_shared_across_characters_for_the_same_video(
+    voice_client, gateway, repository
+):
+    """FR12: claiming an already-ingested video for a second character reads
+    the same shared artifacts, so the gateway call carries only the video id,
+    never a character."""
+    gateway.clips = [clip("clip_0001", "SPEAKER_00")]
+    await repository.create_run(
+        make_run(
+            VoiceRunPhase.AWAITING_REVIEW, id="run_janeway", primary_character="janeway"
+        )
+    )
+    await repository.create_run(
+        make_run(
+            VoiceRunPhase.AWAITING_REVIEW,
+            id="run_chakotay",
+            primary_character="chakotay",
+        )
+    )
+
+    first = voice_client.get("/api/voice/runs/run_janeway/speakers")
+    second = voice_client.get("/api/voice/runs/run_chakotay/speakers")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["speakers"] == second.json()["speakers"]
+    assert gateway.get_clips_video_ids == ["vid_abc123", "vid_abc123"]
+
+
+@pytest.mark.asyncio
 async def test_update_clips_writes_through_and_recounts(
     voice_client, gateway, repository
 ):
@@ -314,6 +436,7 @@ async def test_update_clips_writes_through_and_recounts(
     assert response.status_code == 200
     assert response.json() == {"updated": 1, "approved_count": 1}
     assert gateway.clip_updates == [[{"clip_id": "clip_0001", "keep": False}]]
+    assert gateway.update_clips_video_ids == ["vid_abc123"]
 
 
 @pytest.mark.asyncio
@@ -330,7 +453,7 @@ async def test_approve_writes_the_speaker_map_and_moves_to_committing(
     assert response.status_code == 200
     assert response.json()["phase"] == VoiceRunPhase.COMMITTING
     assert gateway.speaker_maps == [
-        ("janeway", "vid_abc123", {"SPEAKER_00": "janeway", "SPEAKER_01": None})
+        ("vid_abc123", {"SPEAKER_00": "janeway", "SPEAKER_01": None})
     ]
     stored = await repository.get_run("run1")
     assert stored.phase is VoiceRunPhase.COMMITTING
@@ -362,8 +485,34 @@ async def test_approve_rejects_a_map_with_no_character(voice_client, repository)
     assert response.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_get_clip_audio_streams_from_the_gateway(
+    voice_client, gateway, repository
+):
+    gateway.clip_audio = b"RIFF-fake-wav-bytes"
+    await repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
+
+    response = voice_client.get("/api/voice/runs/run1/clips/clip_0001/audio")
+
+    assert response.status_code == 200
+    assert response.content == b"RIFF-fake-wav-bytes"
+    assert gateway.stream_clip_audio_video_ids == ["vid_abc123"]
+
+
 def test_get_run_reports_404_for_an_unknown_id(voice_client):
     assert voice_client.get("/api/voice/runs/nope").status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_training_progress_stays_character_scoped(voice_client, repository):
+    """get_training_progress has no video_id concept and keeps its own URL
+    (FR13 does not apply here -- see the Spec's Boundaries & Constraints)."""
+    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
+
+    response = voice_client.get("/api/voice/runs/run1/training")
+
+    assert response.status_code == 200
+    assert response.json()["character"] == "janeway"
 
 
 @pytest.mark.asyncio

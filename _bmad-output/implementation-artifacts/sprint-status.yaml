@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-13-2026 20:40
-last_updated: 08-13-2026 20:40
+last_updated: 08-14-2026 11:58
 project: copilot_agent_network
 project_key: NOKEY
 tracking_system: file-system
@@ -44,8 +44,8 @@ development_status:
   1-6-show-agent-working-idle-status: backlog
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-reuse-ingested-videos-across-characters: backlog
+  epic-2: in-progress
+  2-1-reuse-ingested-videos-across-characters: review
   2-2-route-one-commit-to-multiple-characters-across-multiple-vide: backlog
   2-3-skip-redundant-preprocessing: backlog
   epic-2-retrospective: optional

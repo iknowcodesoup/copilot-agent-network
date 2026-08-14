@@ -254,7 +254,7 @@ def _diarizing_node_factory(gateway: VoiceFactoryGateway):
         if not run.video_id:
             return _fail(run, "No video id recorded for this run")
         try:
-            clips = await gateway.get_clips(run.primary_character, run.video_id)
+            clips = await gateway.get_clips(run.video_id)
         except VoiceFactoryTransientError as error:
             return _defer(run, f"Could not read clips: {error}")
         except VoiceFactoryError as error:
