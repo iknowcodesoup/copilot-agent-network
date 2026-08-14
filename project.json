@@ -56,8 +56,11 @@
         "cwd": "."
       },
       "configurations": {
-        "local": {
+        "build": {
           "command": "docker compose --env-file .env.local --env-file apps/agentic-executor/.env.local -f docker-compose.yml -f docker-compose.watch.yml up --build --watch"
+        },
+        "local": {
+          "command": "docker compose --env-file .env.local --env-file apps/agentic-executor/.env.local -f docker-compose.yml -f docker-compose.watch.yml up --watch"
         },
         "production": {
           "command": "docker compose --env-file .env --env-file apps/agentic-executor/.env -f docker-compose.yml -f docker-compose.watch.yml up --build --watch"
