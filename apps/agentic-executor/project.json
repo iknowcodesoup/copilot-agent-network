@@ -1,0 +1,16 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "@agentic-executor/agentic-executor",
+  "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "^production"],
+      "outputs": [],
+      "options": {
+        "cwd": "apps/agentic-executor",
+        "command": "tsc --noEmit -p tsconfig.json"
+      }
+    }
+  }
+}
