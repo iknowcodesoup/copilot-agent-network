@@ -25,6 +25,7 @@ from pythonapi.core.embeddings import EmbeddingClient
 from pythonapi.core.generation import AnswerGenerator
 from pythonapi.core.pii import PiiMasker
 from pythonapi.core.reranking import CrossEncoderReranker, LexicalOverlapReranker
+from pythonapi.core.voice_agent_tools import VoiceToolRegistry
 from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.core.voice_pipeline_graph import build_voice_pipeline_graph
@@ -226,6 +227,16 @@ async def lifespan(app: FastAPI):
         blocking_redis=app.state.blocking_redis,
         stream_key=settings.VOICE_EVENT_STREAM_KEY,
         max_length=settings.VOICE_EVENT_STREAM_MAX_LENGTH,
+    )
+    # What the chat agent may call. None without a voice factory, which leaves
+    # the agent a plain chat agent rather than breaking it.
+    app.state.voice_tool_registry = (
+        VoiceToolRegistry(
+            gateway=app.state.voice_factory_gateway,
+            repository=app.state.voice_run_repository,
+        )
+        if app.state.voice_factory_gateway is not None
+        else None
     )
     app.state.voice_run_reconciler = None
     if app.state.voice_factory_gateway is not None:

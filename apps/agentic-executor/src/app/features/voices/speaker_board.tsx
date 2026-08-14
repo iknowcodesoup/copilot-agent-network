@@ -55,15 +55,13 @@ export function SpeakerBoard({
         continue;
       }
       seeded[group.speakerLabel] =
-        assignments[group.speakerLabel] ??
-        group.assignedCharacter ??
-        "";
+        assignments[group.speakerLabel] ?? group.assignedCharacter ?? "";
     }
     return seeded;
   }, [board.data, assignments]);
 
   const assignedCount = Object.values(effectiveAssignments).filter(
-    (character) => character.trim().length > 0
+    (character) => character.trim().length > 0,
   ).length;
 
   if (board.isLoading) {
@@ -87,12 +85,16 @@ export function SpeakerBoard({
   }
 
   function setGroupKeep(group: SpeakerGroup, keep: boolean) {
-    updateClips.mutate(group.clips.map((clip) => ({ clipId: clip.clipId, keep })));
+    updateClips.mutate(
+      group.clips.map((clip) => ({ clipId: clip.clipId, keep })),
+    );
   }
 
   function approve() {
     const speakerMap: Record<string, string | null> = {};
-    for (const [speakerLabel, character] of Object.entries(effectiveAssignments)) {
+    for (const [speakerLabel, character] of Object.entries(
+      effectiveAssignments,
+    )) {
       speakerMap[speakerLabel] = character.trim() || null;
     }
     approveRun.mutate(speakerMap);
@@ -151,7 +153,9 @@ export function SpeakerBoard({
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setExpanded(isOpen ? null : speakerTitle(group))}
+                  onClick={() =>
+                    setExpanded(isOpen ? null : speakerTitle(group))
+                  }
                 >
                   {isOpen ? "Hide clips" : "Play clips"}
                 </Button>

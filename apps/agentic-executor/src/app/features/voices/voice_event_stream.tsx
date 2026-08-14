@@ -43,7 +43,9 @@ interface AgentUiEvent {
  * needs the same conversion.
  */
 function toCamelCase(value: string): string {
-  return value.replace(/_([a-z0-9])/g, (_, character) => character.toUpperCase());
+  return value.replace(/_([a-z0-9])/g, (_, character) =>
+    character.toUpperCase(),
+  );
 }
 
 function convertKeys(value: unknown): unknown {
@@ -55,7 +57,7 @@ function convertKeys(value: unknown): unknown {
       Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
         toCamelCase(key),
         convertKeys(entry),
-      ])
+      ]),
     );
   }
   return value;
@@ -70,7 +72,10 @@ function convertKeys(value: unknown): unknown {
  * TanStack's own answer to that race, and it is safe to fire and forget: with
  * nothing in flight it does nothing at all.
  */
-function cancelFetchesFor(queryClient: QueryClient, queryKey: readonly unknown[]): void {
+function cancelFetchesFor(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+): void {
   void queryClient.cancelQueries({ queryKey, exact: true });
 }
 
@@ -106,7 +111,7 @@ function applyRunUpdate(queryClient: QueryClient, run: VoiceRun): void {
  */
 function applyLogChunk(
   queryClient: QueryClient,
-  chunk: { runId: string; offset: number; content: string }
+  chunk: { runId: string; offset: number; content: string },
 ): void {
   const key = voiceQueryKeys.log(chunk.runId);
   cancelFetchesFor(queryClient, key);
@@ -149,14 +154,21 @@ export function applyVoiceEvent(queryClient: QueryClient, data: string): void {
     applySnapshot(queryClient, convertKeys(event.snapshot.runs) as VoiceRun[]);
     return;
   }
-  if (event.type === CUSTOM_EVENT_TYPE && event.name === RUN_UPDATED_EVENT_NAME) {
+  if (
+    event.type === CUSTOM_EVENT_TYPE &&
+    event.name === RUN_UPDATED_EVENT_NAME
+  ) {
     applyRunUpdate(queryClient, convertKeys(event.value) as VoiceRun);
     return;
   }
   if (event.type === CUSTOM_EVENT_TYPE && event.name === RUN_LOG_EVENT_NAME) {
     applyLogChunk(
       queryClient,
-      convertKeys(event.value) as { runId: string; offset: number; content: string }
+      convertKeys(event.value) as {
+        runId: string;
+        offset: number;
+        content: string;
+      },
     );
   }
 }

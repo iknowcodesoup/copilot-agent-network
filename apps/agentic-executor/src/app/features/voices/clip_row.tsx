@@ -27,7 +27,7 @@ export function ClipRow({
     <li
       className={cn(
         "flex items-center gap-3 border-b border-border/60 px-3 py-2 last:border-b-0",
-        !clip.keep && "opacity-50"
+        !clip.keep && "opacity-50",
       )}
     >
       {/* the native player is enough here: one short mono wav, no scrubbing UI */}
@@ -39,7 +39,9 @@ export function ClipRow({
       />
 
       <p className="min-w-0 flex-1 truncate text-xs" title={clip.text}>
-        {clip.text || <span className="text-muted-foreground">no transcript</span>}
+        {clip.text || (
+          <span className="text-muted-foreground">no transcript</span>
+        )}
       </p>
 
       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">

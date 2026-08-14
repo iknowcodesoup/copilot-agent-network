@@ -85,7 +85,7 @@ export default function DashboardPage() {
               expanded={run.id === expandedRunId}
               onToggle={() =>
                 setExpandedRunId((current) =>
-                  current === run.id ? null : run.id
+                  current === run.id ? null : run.id,
                 )
               }
             />

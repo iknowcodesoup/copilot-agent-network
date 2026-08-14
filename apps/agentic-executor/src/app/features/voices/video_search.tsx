@@ -52,7 +52,7 @@ export function VideoSearch({
           setSelected(null);
           onStarted?.(run.id);
         },
-      }
+      },
     );
   }
 
@@ -101,7 +101,7 @@ export function VideoSearch({
                   "overflow-hidden rounded-lg border border-border text-left transition-colors",
                   isSelected
                     ? "border-primary ring-2 ring-primary/30"
-                    : "hover:border-foreground/30"
+                    : "hover:border-foreground/30",
                 )}
               >
                 {video.thumbnailUrl && (
@@ -115,9 +115,12 @@ export function VideoSearch({
                   />
                 )}
                 <div className="p-2">
-                  <p className="line-clamp-2 text-xs font-medium">{video.title}</p>
+                  <p className="line-clamp-2 text-xs font-medium">
+                    {video.title}
+                  </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {video.channel ?? "unknown"} · {formatDuration(video.durationSec)}
+                    {video.channel ?? "unknown"} ·{" "}
+                    {formatDuration(video.durationSec)}
                   </p>
                 </div>
               </button>
@@ -138,7 +141,8 @@ export function VideoSearch({
                 onChange={(event) => setCharacter(event.target.value)}
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Lower case, no spaces. Any speaker you do not reassign lands here.
+                Lower case, no spaces. Any speaker you do not reassign lands
+                here.
               </p>
             </div>
 
@@ -162,7 +166,9 @@ export function VideoSearch({
 
       {startRun.isError && (
         <Alert variant="destructive">
-          <AlertDescription>{(startRun.error as Error).message}</AlertDescription>
+          <AlertDescription>
+            {(startRun.error as Error).message}
+          </AlertDescription>
         </Alert>
       )}
     </div>

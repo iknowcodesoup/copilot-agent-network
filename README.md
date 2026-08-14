@@ -165,33 +165,33 @@ nx add pythonapi --name <package>  # Python, updates uv.lock
 
 ## Ports and endpoints
 
-| Service       | URL                      |
-| ------------- | ------------------------ |
-| Web app       | `http://localhost:4001`  |
-| Python API    | `http://localhost:8000`  |
-| LiteLLM       | `http://localhost:4000`  |
-| Langfuse      | `http://localhost:4002`  |
-| Qdrant        | `http://localhost:6333`  |
-| Redis         | `localhost:6379`         |
-| Voice factory | `http://localhost:8100`  |
+| Service       | URL                     |
+| ------------- | ----------------------- |
+| Web app       | `http://localhost:4001` |
+| Python API    | `http://localhost:8000` |
+| LiteLLM       | `http://localhost:4000` |
+| Langfuse      | `http://localhost:4002` |
+| Qdrant        | `http://localhost:6333` |
+| Redis         | `localhost:6379`        |
+| Voice factory | `http://localhost:8100` |
 
 The API mounts every router under `/api`. OpenAPI docs are at
 `http://localhost:8000/docs`.
 
-| Method | Path                        | Purpose                        |
-| ------ | --------------------------- | ------------------------------ |
-| GET    | `/api/health`               | Health and integration status  |
-| POST   | `/api/agent`                | AG-UI event stream over SSE    |
-| POST   | `/api/documents`            | Upload and parse a document    |
-| GET    | `/api/documents`            | List documents                 |
-| GET    | `/api/documents/{id}`       | Get one document               |
-| DELETE | `/api/documents/{id}`       | Delete a document              |
-| POST   | `/api/search`               | Hybrid search over chunks      |
-| POST   | `/api/orders`               | Create an order                |
-| GET    | `/api/v1/models`            | OpenAI-compatible model list   |
-| POST   | `/api/v1/chat/completions`  | OpenAI-compatible chat         |
-| POST   | `/api/v1/responses`         | OpenAI-compatible responses    |
-| POST   | `/api/v1/embeddings`        | OpenAI-compatible embeddings   |
+| Method | Path                       | Purpose                       |
+| ------ | -------------------------- | ----------------------------- |
+| GET    | `/api/health`              | Health and integration status |
+| POST   | `/api/agent`               | AG-UI event stream over SSE   |
+| POST   | `/api/documents`           | Upload and parse a document   |
+| GET    | `/api/documents`           | List documents                |
+| GET    | `/api/documents/{id}`      | Get one document              |
+| DELETE | `/api/documents/{id}`      | Delete a document             |
+| POST   | `/api/search`              | Hybrid search over chunks     |
+| POST   | `/api/orders`              | Create an order               |
+| GET    | `/api/v1/models`           | OpenAI-compatible model list  |
+| POST   | `/api/v1/chat/completions` | OpenAI-compatible chat        |
+| POST   | `/api/v1/responses`        | OpenAI-compatible responses   |
+| POST   | `/api/v1/embeddings`       | OpenAI-compatible embeddings  |
 
 ### Voice models
 
@@ -200,20 +200,20 @@ runs in the separate `star-trek-voyicer` repository, on the host, because
 training needs an NVIDIA GPU and Docker. Set `VOICE_FACTORY_URL` to reach it.
 Unset, every route below answers 503 and nothing else is affected.
 
-| Method | Path                                       | Purpose                       |
-| ------ | ------------------------------------------ | ----------------------------- |
-| GET    | `/api/voice/search`                        | Search YouTube for a video    |
-| GET    | `/api/voice/characters`                    | Characters with a dataset     |
-| POST   | `/api/voice/runs`                          | Start a run                   |
-| GET    | `/api/voice/runs`                          | List runs                     |
-| GET    | `/api/voice/runs/{id}`                     | Get one run                   |
-| DELETE | `/api/voice/runs/{id}`                     | Cancel and delete a run       |
-| GET    | `/api/voice/runs/{id}/speakers`            | Clips grouped by speaker      |
-| PATCH  | `/api/voice/runs/{id}/clips`               | Keep, reject, or reassign     |
-| POST   | `/api/voice/runs/{id}/approve`             | End review and start training |
-| GET    | `/api/voice/runs/{id}/clips/{clip}/audio`  | Play one clip                 |
-| GET    | `/api/voice/runs/{id}/logs`                | Tail the running job          |
-| GET    | `/api/voice/runs/{id}/training`            | Epoch, loss, and checkpoints  |
+| Method | Path                                      | Purpose                       |
+| ------ | ----------------------------------------- | ----------------------------- |
+| GET    | `/api/voice/search`                       | Search YouTube for a video    |
+| GET    | `/api/voice/characters`                   | Characters with a dataset     |
+| POST   | `/api/voice/runs`                         | Start a run                   |
+| GET    | `/api/voice/runs`                         | List runs                     |
+| GET    | `/api/voice/runs/{id}`                    | Get one run                   |
+| DELETE | `/api/voice/runs/{id}`                    | Cancel and delete a run       |
+| GET    | `/api/voice/runs/{id}/speakers`           | Clips grouped by speaker      |
+| PATCH  | `/api/voice/runs/{id}/clips`              | Keep, reject, or reassign     |
+| POST   | `/api/voice/runs/{id}/approve`            | End review and start training |
+| GET    | `/api/voice/runs/{id}/clips/{clip}/audio` | Play one clip                 |
+| GET    | `/api/voice/runs/{id}/logs`               | Tail the running job          |
+| GET    | `/api/voice/runs/{id}/training`           | Epoch, loss, and checkpoints  |
 
 The dashboard is at `http://localhost:4001/voices`. A run walks through these
 phases, and stops at `awaiting_review` until a person approves the clips:
@@ -298,18 +298,18 @@ same: `Settings` reads `EMBEDDING_DIM=` as `""` and fails to parse it.
 
 ### Keys worth knowing
 
-| Key                               | Location                 | Purpose                             |
-| --------------------------------- | ------------------------ | ----------------------------------- |
-| `LLM_MODEL`, `EMBEDDING_MODEL`    | repo root                | Gateway model aliases               |
-| `LITELLM_UPSTREAM_API_BASE`       | repo root                | Model backend, LM Studio on 1234    |
-| `LITELLM_CHAT_BACKEND_MODEL`      | repo root                | Chat model behind `chat-default`    |
-| `LITELLM_EMBEDDING_BACKEND_MODEL` | repo root                | Model behind `embedding-default`    |
-| `LLM_API_KEY`                     | repo root                | Gateway key                         |
-| `PII_VAULT_ENCRYPTION_KEY`        | repo root                | Key for the encrypted PII vault     |
-| `HF_TOKEN`                        | repo root                | Hugging Face model downloads        |
-| `EMBEDDING_DIM`                   | `apps/pythonapi/`        | Vector size, must match provider    |
-| `CORS_ALLOW_ORIGINS`              | `apps/pythonapi/`        | Comma-separated allowed origins     |
-| `NEXT_PUBLIC_PYTHON_API_URL`      | `apps/agentic-executor/` | API base URL the browser calls      |
+| Key                               | Location                 | Purpose                          |
+| --------------------------------- | ------------------------ | -------------------------------- |
+| `LLM_MODEL`, `EMBEDDING_MODEL`    | repo root                | Gateway model aliases            |
+| `LITELLM_UPSTREAM_API_BASE`       | repo root                | Model backend, LM Studio on 1234 |
+| `LITELLM_CHAT_BACKEND_MODEL`      | repo root                | Chat model behind `chat-default` |
+| `LITELLM_EMBEDDING_BACKEND_MODEL` | repo root                | Model behind `embedding-default` |
+| `LLM_API_KEY`                     | repo root                | Gateway key                      |
+| `PII_VAULT_ENCRYPTION_KEY`        | repo root                | Key for the encrypted PII vault  |
+| `HF_TOKEN`                        | repo root                | Hugging Face model downloads     |
+| `EMBEDDING_DIM`                   | `apps/pythonapi/`        | Vector size, must match provider |
+| `CORS_ALLOW_ORIGINS`              | `apps/pythonapi/`        | Comma-separated allowed origins  |
+| `NEXT_PUBLIC_PYTHON_API_URL`      | `apps/agentic-executor/` | API base URL the browser calls   |
 
 Three of these need more than a line:
 

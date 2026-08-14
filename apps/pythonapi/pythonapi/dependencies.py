@@ -18,6 +18,7 @@ from pythonapi.core.embeddings import EmbeddingClient
 from pythonapi.core.generation import AnswerGenerator
 from pythonapi.core.pii import PiiMasker
 from pythonapi.core.reranking import Reranker
+from pythonapi.core.voice_agent_tools import VoiceToolRegistry
 from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.repositories.base import DocumentRepository
@@ -93,6 +94,12 @@ def get_required_voice_factory_gateway(request: Request) -> VoiceFactoryGateway:
 
 def get_required_voice_run_repository(request: Request) -> VoiceRunRepository:
     return request.app.state.voice_run_repository
+
+
+def get_voice_tool_registry(request: Request) -> VoiceToolRegistry | None:
+    """None without a voice factory. The chat agent then runs without tools
+    rather than failing, which is what keeps VOICE_FACTORY_URL optional."""
+    return request.app.state.voice_tool_registry
 
 
 def get_required_voice_event_stream(request: Request) -> VoiceEventStream:

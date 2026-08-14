@@ -1,0 +1,60 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 08-13-2026 20:40
+last_updated: 08-13-2026 20:40
+project: copilot_agent_network
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-forward-tool-definitions-and-stream-tool-call-events: backlog
+  1-2-cap-runaway-tool-calling: backlog
+  1-3-publish-run-and-phase-context-to-the-agent: backlog
+  1-4-let-the-agent-expand-a-run: backlog
+  1-5-seed-starter-suggestions-from-visible-runs: backlog
+  1-6-show-agent-working-idle-status: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-reuse-ingested-videos-across-characters: backlog
+  2-2-route-one-commit-to-multiple-characters-across-multiple-vide: backlog
+  2-3-skip-redundant-preprocessing: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-create-the-durable-voice-entity: backlog
+  3-2-split-assignment-from-commit-with-an-audit-trail: backlog
+  3-3-trigger-training-explicitly-or-automatically-independent-of: backlog
+  3-4-split-the-dashboard-into-videos-and-voices-views: backlog
+  3-5-review-ingestion-and-assign-speakers-in-the-videos-view: backlog
+  3-6-manage-voice-training-from-the-voices-view: backlog
+  epic-3-retrospective: optional

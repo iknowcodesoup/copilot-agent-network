@@ -33,9 +33,6 @@ importers:
       '@eslint/js':
         specifier: ^9.8.0
         version: 9.39.5
-      '@leanspec/cli':
-        specifier: ^0.3.0
-        version: 0.3.0
       '@next/eslint-plugin-next':
         specifier: ^16.1.6
         version: 16.3.0(eslint@9.39.5(jiti@2.7.0)(supports-color@7.2.0))
@@ -1520,31 +1517,6 @@ packages:
 
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
-
-  '@leanspec/cli-darwin-arm64@0.3.0':
-    resolution: {integrity: sha512-sxxK7Zo/QKmNszCJfcfn9ONJ0dSePR8KYlIp/ebzT9OeY4PTlPRN8eO0chKMMHO3RDjhy0/bJr5k/Sa3c291sQ==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@leanspec/cli-darwin-x64@0.3.0':
-    resolution: {integrity: sha512-jD6T7OYrqq4y+mSeHMIGtoWoAVyAtcOlhW7f59vvgasf/SXa8+K/TQe8nkuJ5aRe1l4bnm1jhID8YA0IpTzvQA==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@leanspec/cli-linux-x64@0.3.0':
-    resolution: {integrity: sha512-lEh+QPv513MviKpiKWWnz88fVBCeaE3h9qLWYxeiiom3CXIGV9E+ogn4flEeVWOtCCdzjeTn5Md1D8Actoln5w==}
-    cpu: [x64]
-    os: [linux]
-
-  '@leanspec/cli-windows-x64@0.3.0':
-    resolution: {integrity: sha512-uzp3CdD++H/8D0gGnAGpk0rJ1dENQWXB2K5fne7uACuaEZOVmILZfH3+r5dCPTnanPyyoUacbJx7/TKlpCy3xg==}
-    cpu: [x64]
-    os: [win32]
-
-  '@leanspec/cli@0.3.0':
-    resolution: {integrity: sha512-PDNDFWKZ1wf+zXqLCJ7sMbH5RYJqRaGQ4gWstG0M338Uvxn/a2J78gXQRNJO6YA0BkFRXneokd6yWAnh38Dz6A==}
-    engines: {node: '>=20'}
-    hasBin: true
 
   '@lit-labs/react@2.1.3':
     resolution: {integrity: sha512-OD9h2JynerBQUMNzb563jiVpxfvPF0HjQkKY2mx0lpVYvD7F+rtJpOGz6ek+6ufMidV3i+MPT9SX62OKWHFrQg==}
@@ -11493,25 +11465,6 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   '@keyv/serialize@1.1.1': {}
-
-  '@leanspec/cli-darwin-arm64@0.3.0':
-    optional: true
-
-  '@leanspec/cli-darwin-x64@0.3.0':
-    optional: true
-
-  '@leanspec/cli-linux-x64@0.3.0':
-    optional: true
-
-  '@leanspec/cli-windows-x64@0.3.0':
-    optional: true
-
-  '@leanspec/cli@0.3.0':
-    optionalDependencies:
-      '@leanspec/cli-darwin-arm64': 0.3.0
-      '@leanspec/cli-darwin-x64': 0.3.0
-      '@leanspec/cli-linux-x64': 0.3.0
-      '@leanspec/cli-windows-x64': 0.3.0
 
   '@lit-labs/react@2.1.3(@types/react@19.2.18)':
     dependencies:

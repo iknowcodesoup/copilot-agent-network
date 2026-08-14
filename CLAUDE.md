@@ -9,13 +9,10 @@ Postgres, and routes every model call through LiteLLM.
 ## Critical Rules (Always Active)
 
 1. **ASK BEFORE CHANGES** — Never make code changes without user confirmation
-2. **CHECK CONTEXT FIRST** — Run `board` and `search` before any spec work
-3. **USE LEANSPEC TOOLING** — Never create spec files manually
-4. **ALWAYS SAVE TO SPEC** — Persist progress after every completed phase/slice via LeanSpec tooling
-5. **ALWAYS EVAL FOR SKILLS** — Before every task, check whether a skill below applies and read it if so. Do NOT read skills by default, but do NOT skip this evaluation.
-6. **ALWAYS ASK BEFORE SEARCHING** — Before endlessly searching ask where files and features are located if a grounded starting point is not provided.
-7. **PLAIN ENGLISH OUTPUT** — Write all output (chat, comments, commits, PRs, specs, UI text) per ASD-STE100: short sentences, active voice, one idea per sentence, no jargon. See `asd-ste100` skill.
-8. **SQLALCHEMY ONLY** — All Postgres access uses SQLAlchemy 2.0 async. Never write raw SQL.
+2. **ALWAYS EVAL FOR SKILLS** — Before every task, check whether a skill below applies and read it if so. Do NOT read skills by default, but do NOT skip this evaluation.
+3. **ALWAYS ASK BEFORE SEARCHING** — Before endlessly searching ask where files and features are located if a grounded starting point is not provided.
+4. **PLAIN ENGLISH OUTPUT** — Write all output (chat, comments, commits, PRs, specs, UI text) per ASD-STE100: short sentences, active voice, one idea per sentence, no jargon. See `asd-ste100` skill.
+5. **SQLALCHEMY ONLY** — All Postgres access uses SQLAlchemy 2.0 async. Never write raw SQL.
 
 ---
 
@@ -23,8 +20,6 @@ Postgres, and routes every model call through LiteLLM.
 
 | Skill                | Path                                         | When to apply                                     |
 | -------------------- | -------------------------------------------- | ------------------------------------------------- |
-| `leanspec`           | `.claude/skills/leanspec/SKILL.md`           | Creating/updating specs, using LeanSpec MCP tools |
-| `leanspec-sdd`       | `.claude/skills/leanspec-sdd/SKILL.md`       | Spec-driven development workflow                  |
 | `diagrams`           | `.claude/skills/diagrams/SKILL.md`           | Any diagram, flowchart, or architecture doc       |
 | `naming-conventions` | `.claude/skills/naming-conventions/SKILL.md` | Writing or reviewing any identifier names         |
 | `gof-patterns`       | `.claude/skills/gof-patterns/SKILL.md`       | Designing classes or choosing structural patterns |
@@ -35,7 +30,6 @@ Postgres, and routes every model call through LiteLLM.
 | Agent           | Path                              | When to apply                                           |
 | --------------- | --------------------------------- | ------------------------------------------------------- |
 | `code-reviewer` | `.claude/agents/code-reviewer.md` | Non-trivial diffs — naming, patterns, async correctness |
-| `spec-writer`   | `.claude/agents/spec-writer.md`   | Full LeanSpec spec creation or major spec restructuring |
 
 ---
 
@@ -268,7 +262,7 @@ nx down apps          # stop the stack
 nx serve pythonapi    # uvicorn on :8000
 nx test pythonapi     # pytest with coverage
 nx lint pythonapi     # ruff check
-nx format pythonapi   # ruff format
+nx run pythonapi:format  # ruff format. NOT `nx format pythonapi` - see below
 nx baml-generate pythonapi
 
 # Front end
@@ -279,7 +273,20 @@ nx e2e agentic-executor-e2e
 # Whole workspace
 nx run-many -t lint test
 nx affected -t lint test
+
+# Prettier over every non-Python file in the repo. Workspace-wide by design.
+nx format
 ```
+
+> **`format` is an Nx built-in, so a project name does not scope it.**
+> `nx format pythonapi` runs prettier over the whole workspace and ignores
+> the word `pythonapi`. The project's own ruff target is shadowed by the
+> built-in and is only reachable as `nx run pythonapi:format`. The same trap
+> applies to `format:check`, `repair`, `migrate`, and `reset`.
+>
+> `.gitattributes` pins the working tree to LF, which is what keeps `nx format`
+> idempotent. Without it, prettier writes LF over a CRLF checkout and every
+> file in the repo shows as modified with no content change.
 
 **Dependencies:**
 
@@ -346,7 +353,7 @@ interpolation, which the LiteLLM and Langfuse blocks and the
   Postgres may all be unset. Qdrant always works through embedded `:memory:`.
 - Settings are `UPPER_SNAKE_CASE` fields on the `Settings` class. Read them
   from `settings`, never from `os.environ`.
-- Ruff enforces line length 88 and import order. Run `nx format pythonapi`
+- Ruff enforces line length 88 and import order. Run `nx run pythonapi:format`
   before you commit.
 
 ### TypeScript / React

@@ -1,0 +1,27 @@
+# Line endings. Without this file, git core.autocrlf checks out CRLF on
+# Windows while prettier and ruff both write LF. Every format run then rewrites
+# every file's line endings, and the whole repo shows as modified with no
+# content change. Forcing LF in the working tree makes a format run idempotent.
+* text=auto eol=lf
+
+# These two interpreters need CRLF and fail on LF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Generated. Never diffed, never formatted.
+pnpm-lock.yaml linguist-generated -diff
+uv.lock linguist-generated -diff
+**/baml_client/** linguist-generated -diff
+
+# Binary. Never normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.wav binary
+*.mp3 binary
+*.mp4 binary
+*.onnx binary
+*.ckpt binary
+*.pt binary

@@ -21,7 +21,10 @@ from pythonapi.core.voice_factory_gateway import (
     VoiceFactoryError,
     VoiceFactoryTransientError,
 )
-from pythonapi.core.voice_pipeline_graph import build_voice_pipeline_graph, ingest_stages_for
+from pythonapi.core.voice_pipeline_graph import (
+    build_voice_pipeline_graph,
+    ingest_stages_for,
+)
 from pythonapi.dependencies import (
     get_required_voice_event_stream,
     get_required_voice_factory_gateway,

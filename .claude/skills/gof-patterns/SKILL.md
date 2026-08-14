@@ -98,7 +98,32 @@ flowchart LR
 
 Never import in the other direction. `core/` must not import from `routes/`.
 
-### 6. In Specs: Component Design Template
+### 6. Prefer a Library-Generated Definition Over Hand-Written Boilerplate
+
+Before you hand-write a schema, a registry dict, or another structure that
+just restates a function's own signature, check whether an installed library
+already builds that structure from typed, documented code. A hand-written
+copy can drift from the code it describes. A library-generated one cannot.
+
+**Example**: `voice_agent_tools.py` once hand-wrote a `TOOL_SCHEMAS` list of
+raw JSON Schema dicts, next to a `_handlers` dict, next to six handler
+methods. Three structures held the same facts, and nothing kept them in
+sync. LangChain's `@tool` decorator (already a dependency in this repo)
+reads a function's own docstring and type hints and builds the schema from
+them. The decorated function is itself the handler, so one definition now
+does the job of all three.
+
+| Bad (Hand-Rolled)                                    | Good (Library-Generated)                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------ |
+| A hand-written JSON Schema dict for a tool call        | `@tool` (`langchain_core.tools`) or `pydantic_function_tool` (`openai`) |
+| A hand-written JSON Schema for a Pydantic-shaped value | `Model.model_json_schema()`                                        |
+| A name-to-handler dict kept in sync with a schema list | The library object that already carries both, keyed by `.name`     |
+
+Reach for a hand-written structure only when no installed library covers the
+case. Check `pyproject.toml` first — the repo may already depend on a
+library that solves it.
+
+### 7. In Specs: Component Design Template
 
 When you propose a new class in a spec, use this template.
 

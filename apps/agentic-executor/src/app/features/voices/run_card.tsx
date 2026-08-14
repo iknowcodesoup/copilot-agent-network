@@ -7,7 +7,12 @@ import { cn } from "@/lib/utils";
 import { PhaseBadge } from "./phase_badge";
 import { SpeakerBoard } from "./speaker_board";
 import { TrainingMonitor } from "./training_monitor";
-import { resumeStepLabel, useJobLog, useRetryRun, type VoiceRun } from "./voice_api";
+import {
+  resumeStepLabel,
+  useJobLog,
+  useRetryRun,
+  type VoiceRun,
+} from "./voice_api";
 
 /* Fallback shown until the job's log has produced its first line. */
 const waitingMessages: Record<string, string> = {
@@ -100,7 +105,7 @@ export function RunCard({
             aria-hidden
             className={cn(
               "text-xs text-muted-foreground transition-transform",
-              expanded && "rotate-90"
+              expanded && "rotate-90",
             )}
           >
             &#9654;
@@ -148,8 +153,8 @@ export function RunCard({
               <AlertDescription>
                 The model is exported. Copy{" "}
                 <code>output/{run.primaryCharacter}.onnx</code> and its{" "}
-                <code>.onnx.json</code> into <code>apps/janewav/src/models/</code>,
-                then add a MODELS entry.
+                <code>.onnx.json</code> into{" "}
+                <code>apps/janewav/src/models/</code>, then add a MODELS entry.
               </AlertDescription>
             </Alert>
           )}

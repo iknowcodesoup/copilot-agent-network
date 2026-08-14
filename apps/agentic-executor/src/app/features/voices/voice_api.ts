@@ -193,14 +193,19 @@ export interface ClipDecision {
  * remember which side of the wire a field came from.
  */
 function toCamelCase(value: string): string {
-  return value.replace(/_([a-z0-9])/g, (_, character) => character.toUpperCase());
+  return value.replace(/_([a-z0-9])/g, (_, character) =>
+    character.toUpperCase(),
+  );
 }
 
 function toSnakeCase(value: string): string {
   return value.replace(/[A-Z]/g, (character) => `_${character.toLowerCase()}`);
 }
 
-function convertKeys(value: unknown, convert: (key: string) => string): unknown {
+function convertKeys(
+  value: unknown,
+  convert: (key: string) => string,
+): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => convertKeys(item, convert));
   }
@@ -209,7 +214,7 @@ function convertKeys(value: unknown, convert: (key: string) => string): unknown 
       Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
         convert(key),
         convertKeys(entry, convert),
-      ])
+      ]),
     );
   }
   return value;
@@ -218,7 +223,7 @@ function convertKeys(value: unknown, convert: (key: string) => string): unknown 
 export class VoiceApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
   ) {
     super(message);
     this.name = "VoiceApiError";
@@ -305,7 +310,7 @@ export function useVoiceRuns() {
 
 export function useVoiceRun(
   runId: string,
-  options?: Partial<UseQueryOptions<VoiceRun, VoiceApiError>>
+  options?: Partial<UseQueryOptions<VoiceRun, VoiceApiError>>,
 ) {
   return useQuery<VoiceRun, VoiceApiError>({
     queryKey: voiceQueryKeys.run(runId),
@@ -349,7 +354,7 @@ export function useVideoSearch(query: string) {
     queryKey: voiceQueryKeys.search(query),
     queryFn: () =>
       request<{ query: string; videos: VideoResult[] }>(
-        `/search?query=${encodeURIComponent(query)}&limit=12`
+        `/search?query=${encodeURIComponent(query)}&limit=12`,
       ),
     enabled: query.trim().length > 0,
     // a search costs a real yt-dlp call, so keep results around
@@ -390,10 +395,12 @@ export function useUpdateClips(runId: string) {
     mutationFn: (decisions: ClipDecision[]) =>
       request<{ updated: number; approvedCount: number }>(
         `/runs/${runId}/clips`,
-        { method: "PATCH", body: jsonBody({ decisions }) }
+        { method: "PATCH", body: jsonBody({ decisions }) },
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.speakers(runId) });
+      queryClient.invalidateQueries({
+        queryKey: voiceQueryKeys.speakers(runId),
+      });
       queryClient.invalidateQueries({ queryKey: voiceQueryKeys.run(runId) });
     },
   });

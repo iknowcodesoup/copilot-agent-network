@@ -37,7 +37,9 @@ export function TrainingMonitor({
   const checkpoints = training.data?.checkpoints ?? [];
   const { currentEpoch, currentLoss } = run;
   const percent =
-    currentEpoch === null ? 0 : Math.min((currentEpoch / MAX_EPOCHS) * 100, 100);
+    currentEpoch === null
+      ? 0
+      : Math.min((currentEpoch / MAX_EPOCHS) * 100, 100);
 
   return (
     <Card>

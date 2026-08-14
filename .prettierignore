@@ -1,0 +1,23 @@
+# Generated files. Formatting a lockfile creates a diff nobody reviews and
+# invites a merge conflict on every dependency change.
+pnpm-lock.yaml
+uv.lock
+
+# Generated from baml_src. Regenerate it, never edit or format it.
+**/baml_client/
+
+# Build output and caches
+dist/
+build/
+coverage/
+reports/
+.next/
+.nx/
+.venv/
+**/.venv/
+**/__pycache__/
+**/node_modules/
+
+# Python belongs to ruff, not prettier.
+*.py
+

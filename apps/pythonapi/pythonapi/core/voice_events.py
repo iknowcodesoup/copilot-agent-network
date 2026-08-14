@@ -93,7 +93,7 @@ class VoiceEventStream:
     def enabled(self) -> bool:
         return self._redis is not None
 
-    async def publish(self, run: VoiceRun) -> str | None:
+    async def publish(self, run: VoiceRun) -> bytes | str | None:
         """Publish a run's current state. Returns the assigned event id.
 
         Returns None when Redis is unset or unreachable. Callers must not treat
@@ -126,7 +126,7 @@ class VoiceEventStream:
 
     async def publish_log(
         self, run_id: str, job_id: str, offset: int, content: str
-    ) -> str | None:
+    ) -> bytes | str | None:
         """Publish new job-log content. Best-effort, same as publish()."""
         if self._redis is None:
             return None
@@ -148,10 +148,12 @@ class VoiceEventStream:
                 approximate=True,
             )
         except RedisError as error:
-            logger.warning("Could not publish a voice log event for %s: %s", run_id, error)
+            logger.warning(
+                "Could not publish a voice log event for %s: %s", run_id, error
+            )
             return None
 
-    async def current_position(self) -> str:
+    async def current_position(self) -> bytes | str | None:
         """The id of the newest entry, or the stream start when it is empty.
 
         An SSE connection captures this before it reads its snapshot, so a

@@ -5,8 +5,6 @@ allowBuilds:
   # but the web image is node:22-alpine, so the Linux binary is what pnpm
   # resolves inside Docker. Listing only one makes `pnpm install
   # --frozen-lockfile` fail there with ERR_PNPM_IGNORED_BUILDS.
-  "@leanspec/cli-linux-x64": false
-  "@leanspec/cli-windows-x64": false
   "@parcel/watcher": true
   "@scarf/scarf": false
   "@swc/core": true

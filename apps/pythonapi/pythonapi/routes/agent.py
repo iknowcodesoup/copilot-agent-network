@@ -7,17 +7,23 @@ back as an SSE stream of AG-UI events.
 
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from pythonapi.config import settings
 from pythonapi.core.chat_agent import run_chat_agent
+from pythonapi.core.voice_agent_tools import VoiceToolRegistry
+from pythonapi.dependencies import get_voice_tool_registry
 
 router = APIRouter(tags=["Agent"])
 
 
 @router.post("/agent")
-async def post_agent(agent_input: RunAgentInput, request: Request) -> StreamingResponse:
+async def post_agent(
+    agent_input: RunAgentInput,
+    request: Request,
+    tool_registry: VoiceToolRegistry | None = Depends(get_voice_tool_registry),
+) -> StreamingResponse:
     """Run the chat agent and stream its AG-UI events."""
     # A missing key is a deployment error, not a run error: fail before the
     # stream opens so the client sees a 500 instead of an empty event stream.
@@ -30,7 +36,7 @@ async def post_agent(agent_input: RunAgentInput, request: Request) -> StreamingR
     encoder = EventEncoder(accept=request.headers.get("accept"))
 
     async def event_stream():
-        async for event in run_chat_agent(agent_input):
+        async for event in run_chat_agent(agent_input, tool_registry):
             yield encoder.encode(event)
 
     return StreamingResponse(

@@ -1,9 +1,9 @@
-import { defineConfig, devices } from '@playwright/test';
-import { nxE2EPreset } from '@nx/playwright/preset';
-import { workspaceRoot } from '@nx/devkit';
+import { defineConfig, devices } from "@playwright/test";
+import { nxE2EPreset } from "@nx/playwright/preset";
+import { workspaceRoot } from "@nx/devkit";
 
 // For CI, you may want to set BASE_URL to the deployed application.
-const baseURL = process.env['BASE_URL'] || 'http://localhost:3000';
+const baseURL = process.env["BASE_URL"] || "http://localhost:3000";
 
 /**
  * Read environment variables from file.
@@ -22,19 +22,19 @@ const baseURL = process.env['BASE_URL'] || 'http://localhost:3000';
  * (.ts/.js/.mts/.mjs/.cts/.cjs).
  */
 export default defineConfig({
-  ...nxE2EPreset(import.meta.dirname, { testDir: './src' }),
+  ...nxE2EPreset(import.meta.dirname, { testDir: "./src" }),
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     baseURL,
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
+    trace: "on-first-retry",
   },
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'npx nx run @agentic-executor/agentic-executor:dev',
-    url: 'http://localhost:3000',
+    command: "npx nx run @agentic-executor/agentic-executor:dev",
+    url: "http://localhost:3000",
     reuseExistingServer: true,
-    cwd: workspaceRoot
+    cwd: workspaceRoot,
   },
   projects: [
     {

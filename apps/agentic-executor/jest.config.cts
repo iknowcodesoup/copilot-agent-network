@@ -1,27 +1,27 @@
-const nextJest = require('next/jest.js');
+const nextJest = require("next/jest.js");
 
 const createJestConfig = nextJest({
-  dir: './',
+  dir: "./",
 });
 
 const config = {
-  displayName: '@agentic-executor/agentic-executor',
-  preset: '../../jest.preset.js',
+  displayName: "@agentic-executor/agentic-executor",
+  preset: "../../jest.preset.js",
   transform: {
-    '^(?!.*\\.(js|jsx|ts|tsx|css|json)$)': '@nx/react/plugins/jest',
+    "^(?!.*\\.(js|jsx|ts|tsx|css|json)$)": "@nx/react/plugins/jest",
   },
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
+  moduleFileExtensions: ["ts", "tsx", "js", "jsx"],
   // The "@/*" alias lives in the app's tsconfig.json, but tsconfig.spec.json
   // extends tsconfig.base.json, which does not carry it. Without this mapping
   // any component importing "@/components/..." fails to resolve under Jest.
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
+    "^@/(.*)$": "<rootDir>/src/$1",
   },
-  coverageDirectory: '../../coverage/apps/agentic-executor',
-  testEnvironment: 'jsdom',
+  coverageDirectory: "../../coverage/apps/agentic-executor",
+  testEnvironment: "jsdom",
   // Runs before the test framework and before any module import, which is what
   // the jose/TextEncoder polyfill in there needs to be useful.
-  setupFiles: ['<rootDir>/jest.setup.ts'],
+  setupFiles: ["<rootDir>/jest.setup.ts"],
 };
 
 /*
@@ -41,7 +41,7 @@ const config = {
  * that already matches.
  */
 const TRANSFORM_EVERYTHING_BUT_CSS_MODULES = [
-  '^.+\\.module\\.(css|sass|scss)$',
+  "^.+\\.module\\.(css|sass|scss)$",
 ];
 
 const jestConfig = createJestConfig(config);
