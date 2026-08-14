@@ -73,6 +73,8 @@ class FakeVoiceFactoryGateway:
         self.clip_audio: bytes = b""
         self.next_job_id = 0
         self.fail_with: VoiceFactoryError | None = None
+        self.commit_calls: list[dict] = []
+        self.committed: dict[str, int] = {}
 
     def _guard(self) -> None:
         if self.fail_with is not None:
@@ -149,6 +151,11 @@ class FakeVoiceFactoryGateway:
     async def set_speaker_map(self, video_id: str, speaker_map: dict) -> None:
         self._guard()
         self.speaker_maps.append((video_id, speaker_map))
+
+    async def commit_clips(self, assignments: dict) -> dict:
+        self._guard()
+        self.commit_calls.append(assignments)
+        return dict(self.committed)
 
     async def get_training_progress(self, character: str) -> TrainingProgress:
         self._guard()
@@ -332,6 +339,65 @@ def test_get_video_speakers_reports_502_when_the_factory_is_unreachable(
     gateway.fail_with = VoiceFactoryError("connection refused")
 
     response = voice_client.get("/api/voice/videos/vid_abc123/speakers")
+
+    assert response.status_code == 502
+
+
+def test_commit_clips_routes_the_payload_and_returns_counts(voice_client, gateway):
+    """FR14: one call, several videos, several characters."""
+    gateway.committed = {"janeway": 2, "chakotay": 1}
+
+    response = voice_client.post(
+        "/api/voice/commit",
+        json={
+            "assignments": {
+                "vid1": {"SPEAKER_00": "janeway", "SPEAKER_01": "chakotay"},
+                "vid2": {"SPEAKER_00": "chakotay"},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"committed": {"janeway": 2, "chakotay": 1}}
+    assert gateway.commit_calls == [
+        {
+            "vid1": {"SPEAKER_00": "janeway", "SPEAKER_01": "chakotay"},
+            "vid2": {"SPEAKER_00": "chakotay"},
+        }
+    ]
+
+
+def test_commit_clips_reports_409_on_a_speaker_map_conflict(voice_client, gateway):
+    gateway.fail_with = VoiceFactoryError("conflict", status_code=409)
+
+    response = voice_client.post(
+        "/api/voice/commit",
+        json={"assignments": {"vid1": {"SPEAKER_00": "janeway"}}},
+    )
+
+    assert response.status_code == 409
+
+
+def test_commit_clips_reports_404_for_an_unknown_video(voice_client, gateway):
+    gateway.fail_with = VoiceFactoryError("no such video", status_code=404)
+
+    response = voice_client.post(
+        "/api/voice/commit",
+        json={"assignments": {"vid1": {"SPEAKER_00": "janeway"}}},
+    )
+
+    assert response.status_code == 404
+
+
+def test_commit_clips_reports_502_when_the_factory_is_unreachable(
+    voice_client, gateway
+):
+    gateway.fail_with = VoiceFactoryError("connection refused")
+
+    response = voice_client.post(
+        "/api/voice/commit",
+        json={"assignments": {"vid1": {"SPEAKER_00": "janeway"}}},
+    )
 
     assert response.status_code == 502
 

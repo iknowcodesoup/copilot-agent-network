@@ -13,7 +13,6 @@ MAY_BE_NONE = frozenset(
         "LANGFUSE_RELEASE",
         "LANGFUSE_SECRET_KEY",
         "LLM_API_KEY",
-        "LLM_BASE_URL",
         "PII_VAULT_ENCRYPTION_KEY",
         "PII_VAULT_SALT",
         "POSTGRES_URL",

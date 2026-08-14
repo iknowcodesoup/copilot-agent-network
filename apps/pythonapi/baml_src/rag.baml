@@ -5,7 +5,7 @@ class RAGAnswer {
 }
 
 function GenerateAnswer(context: string, question: string) -> RAGAnswer {
-  client LocalGemma
+  client LiteLLMGateway
   prompt #"
     You are an expert analytical assistant.
     Answer the user's question based strictly on the following context.
