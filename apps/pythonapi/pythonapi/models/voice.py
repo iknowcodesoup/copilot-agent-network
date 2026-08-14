@@ -200,6 +200,25 @@ class SpeakerAssignmentRequest(BaseModel):
     speaker_map: dict[str, str | None]
 
 
+class CommitRequest(BaseModel):
+    """Route reviewed clips from several videos to several characters in one
+    call (FR14).
+
+    Maps video_id to that video's {speaker_label: character} entries. A
+    character of None discards that speaker's clips, same meaning as
+    SpeakerAssignmentRequest. Distinct from SpeakerAssignmentRequest, which
+    approves and commits a single run's own video.
+    """
+
+    assignments: dict[str, dict[str, str | None]] = Field(min_length=1)
+
+
+class CommitResponse(BaseModel):
+    """How many clips each named character's dataset gained."""
+
+    committed: dict[str, int] = Field(default_factory=dict)
+
+
 class CheckpointSummary(BaseModel):
     path: str
     name: str

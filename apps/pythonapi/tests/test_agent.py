@@ -220,11 +220,22 @@ def test_agent_allows_the_web_origin_preflight(client):
     assert response.headers["access-control-allow-origin"] == "http://localhost:4001"
 
 
-def test_agent_requires_an_llm_api_key(client, monkeypatch):
+def test_agent_requires_a_gateway_url(client, monkeypatch):
+    monkeypatch.setattr(settings, "LLM_BASE_URL", "")
+
+    response = client.post("/api/agent", json=_run_input())
+
+    # A missing gateway is a deployment error, so it fails before the stream
+    # opens rather than sending an empty event stream.
+    assert response.status_code == 500
+    assert "LLM_BASE_URL" in response.json()["detail"]
+
+
+def test_agent_runs_without_an_api_key(client, stub_llm, monkeypatch):
+    """A local LiteLLM with no master key is a valid deployment."""
+    # After stub_llm, which sets a key of its own.
     monkeypatch.setattr(settings, "LLM_API_KEY", None)
 
     response = client.post("/api/agent", json=_run_input())
 
-    # A missing key is a deployment error, so it fails before the stream opens.
-    assert response.status_code == 500
-    assert "LLM_API_KEY" in response.json()["detail"]
+    assert response.status_code == 200

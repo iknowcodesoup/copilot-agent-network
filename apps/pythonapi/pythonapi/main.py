@@ -155,12 +155,12 @@ async def lifespan(app: FastAPI):
     app.state.openai_client = None
     sparse_model = None
     if settings.EMBEDDING_PROVIDER == "openai_compatible":
-        if not settings.LLM_API_KEY:
+        if not settings.LLM_BASE_URL:
             raise RuntimeError(
-                "LLM_API_KEY must be set when EMBEDDING_PROVIDER=openai_compatible"
+                "LLM_BASE_URL must be set when EMBEDDING_PROVIDER=openai_compatible"
             )
         app.state.openai_client = AsyncOpenAI(
-            base_url=settings.LLM_BASE_URL, api_key=settings.LLM_API_KEY
+            base_url=settings.LLM_BASE_URL, api_key=settings.gateway_api_key
         )
         from fastembed import SparseTextEmbedding
 

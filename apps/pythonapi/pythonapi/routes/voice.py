@@ -34,6 +34,8 @@ from pythonapi.dependencies import (
 )
 from pythonapi.models.voice import (
     ClipDecisionRequest,
+    CommitRequest,
+    CommitResponse,
     JobLog,
     SpeakerAssignmentRequest,
     SpeakerBoard,
@@ -132,6 +134,36 @@ async def get_video_speakers(
         return await gateway.get_video_speakers(video_id)
     except VoiceFactoryError as error:
         raise _unavailable(error) from error
+
+
+@router.post("/commit", response_model=CommitResponse)
+async def commit_clips(
+    commit_request: CommitRequest,
+    gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
+):
+    """Route reviewed clips from several videos to several characters in one
+    call (FR14).
+
+    Run-independent, like list_videos and get_video_speakers above: it acts
+    on the shared work/youtube/ directory, not on any one run. A conflicting
+    speaker-map entry anywhere in the payload leaves every video's map
+    untouched, reported as a 409, same shape as approve_run's speaker map
+    write.
+    """
+    try:
+        committed = await gateway.commit_clips(commit_request.assignments)
+    except VoiceFactoryError as error:
+        # any 4xx the control API returns is the operator's mistake, not the
+        # factory being unreachable -- a speaker-map conflict, an unknown
+        # video id, or _check_name rejecting an invalid character name in the
+        # payload -- so it keeps its own status instead of becoming the
+        # blanket 502 every other factory failure gets. status_code is None
+        # for a transport failure (VoiceFactoryTransientError), which falls
+        # through to _unavailable below along with any 5xx.
+        if error.status_code is not None and 400 <= error.status_code < 500:
+            raise HTTPException(error.status_code, str(error)) from error
+        raise _unavailable(error) from error
+    return CommitResponse(committed=committed)
 
 
 @router.post(

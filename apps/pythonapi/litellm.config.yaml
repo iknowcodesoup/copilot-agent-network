@@ -1,20 +1,24 @@
 model_list:
-  - model_name: os.environ/LLM_MODEL
+  - model_name: chat-default
     litellm_params:
       model: os.environ/LITELLM_CHAT_BACKEND_MODEL
       api_base: os.environ/LITELLM_UPSTREAM_API_BASE
       api_key: os.environ/LITELLM_UPSTREAM_API_KEY
 
-  - model_name: os.environ/LLM2_MODEL
+  - model_name: chat-backup
     litellm_params:
       model: os.environ/LITELLM_CHAT2_BACKEND_MODEL
       api_base: os.environ/LITELLM_UPSTREAM2_API_BASE
+      api_key: none
 
-  - model_name: os.environ/EMBEDDING_MODEL
+  - model_name: embedding-default
     litellm_params:
       model: os.environ/LITELLM_EMBEDDING_BACKEND_MODEL
       api_base: os.environ/LITELLM_UPSTREAM_API_BASE
       api_key: os.environ/LITELLM_UPSTREAM_API_KEY
+
+router_settings:
+  fallbacks: [{ "chat-default": ["chat-backup"] }]
 
 litellm_settings:
   drop_params: true

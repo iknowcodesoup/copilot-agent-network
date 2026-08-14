@@ -35,6 +35,10 @@ from pythonapi.models.voice import (
     VideoSummary,
 )
 
+# One video's speaker-map entries: speaker label -> character. A character of
+# None discards that speaker's clips, same meaning as set_speaker_map.
+SpeakerAssignments = dict[str, str | None]
+
 logger = logging.getLogger(__name__)
 
 # Below this the factory answered but the request was wrong; at or above it the
@@ -69,7 +73,17 @@ class VoiceFactoryError(RuntimeError):
     """The control API answered, and the answer says the request was wrong.
 
     Permanent: the same request will fail the same way, so nothing retries it.
+
+    status_code is the control API's own HTTP status, when the failure came
+    from a response rather than a transport error. Most callers only care
+    that the call failed and turn any VoiceFactoryError into a 502 - but a
+    caller that must preserve one specific status, such as commit_clips's 409
+    on a speaker-map conflict, reads it off here instead of parsing message.
     """
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class VoiceFactoryTransientError(VoiceFactoryError):
@@ -109,8 +123,8 @@ class VoiceFactoryGateway:
                 f"{method} {url} failed with {status_code}: {error.response.text[:500]}"
             )
             if status_code >= FIRST_SERVER_ERROR_STATUS:
-                raise VoiceFactoryTransientError(message) from error
-            raise VoiceFactoryError(message) from error
+                raise VoiceFactoryTransientError(message, status_code) from error
+            raise VoiceFactoryError(message, status_code) from error
         except httpx.HTTPError as error:
             # no response at all: refused, reset, timed out, DNS. All worth
             # asking again, because the GPU host can restart under us.
@@ -202,6 +216,22 @@ class VoiceFactoryGateway:
             f"/videos/{video_id}/speaker-map",
             json={"speaker_map": speaker_map},
         )
+
+    async def commit_clips(
+        self, assignments: dict[str, SpeakerAssignments]
+    ) -> dict[str, int]:
+        """Write every named video's speaker-map entries, then run one commit
+        pass across the whole shared work/youtube/ directory (FR14).
+
+        assignments maps video_id to that video's {speaker_label: character}
+        entries, merged with any earlier claim the same way set_speaker_map's
+        PUT already merges one video at a time. Returns how many clips each
+        named character's dataset gained.
+        """
+        payload = await self._request(
+            "POST", "/videos/commit", json={"assignments": assignments}
+        )
+        return payload.get("committed", {})
 
     async def get_training_progress(self, character: str) -> TrainingProgress:
         # training has no video_id concept, so this stays character-scoped

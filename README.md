@@ -298,26 +298,32 @@ same: `Settings` reads `EMBEDDING_DIM=` as `""` and fails to parse it.
 
 ### Keys worth knowing
 
-| Key                               | Location                 | Purpose                          |
-| --------------------------------- | ------------------------ | -------------------------------- |
-| `LLM_MODEL`, `EMBEDDING_MODEL`    | repo root                | Gateway model aliases            |
-| `LITELLM_UPSTREAM_API_BASE`       | repo root                | Model backend, LM Studio on 1234 |
-| `LITELLM_CHAT_BACKEND_MODEL`      | repo root                | Chat model behind `chat-default` |
-| `LITELLM_EMBEDDING_BACKEND_MODEL` | repo root                | Model behind `embedding-default` |
-| `LLM_API_KEY`                     | repo root                | Gateway key                      |
-| `PII_VAULT_ENCRYPTION_KEY`        | repo root                | Key for the encrypted PII vault  |
-| `HF_TOKEN`                        | repo root                | Hugging Face model downloads     |
-| `EMBEDDING_DIM`                   | `apps/pythonapi/`        | Vector size, must match provider |
-| `CORS_ALLOW_ORIGINS`              | `apps/pythonapi/`        | Comma-separated allowed origins  |
-| `NEXT_PUBLIC_PYTHON_API_URL`      | `apps/agentic-executor/` | API base URL the browser calls   |
+| Key                               | Location                 | Purpose                            |
+| --------------------------------- | ------------------------ | ---------------------------------- |
+| `LITELLM_UPSTREAM_API_BASE`       | repo root                | Primary backend, LM Studio on 1234 |
+| `LITELLM_CHAT_BACKEND_MODEL`      | repo root                | Chat model behind `chat-default`   |
+| `LITELLM_EMBEDDING_BACKEND_MODEL` | repo root                | Model behind `embedding-default`   |
+| `LITELLM_UPSTREAM2_API_BASE`      | repo root                | Fallback backend, LiteRT on 9379   |
+| `LITELLM_CHAT2_BACKEND_MODEL`     | repo root                | Chat model behind `chat-backup`    |
+| `LLM_API_KEY`                     | repo root                | Gateway master key, optional       |
+| `PII_VAULT_ENCRYPTION_KEY`        | repo root                | Key for the encrypted PII vault    |
+| `HF_TOKEN`                        | repo root                | Hugging Face model downloads       |
+| `LLM_BASE_URL`                    | `apps/pythonapi/`        | Gateway URL the service calls      |
+| `EMBEDDING_DIM`                   | `apps/pythonapi/`        | Vector size, must match provider   |
+| `CORS_ALLOW_ORIGINS`              | `apps/pythonapi/`        | Comma-separated allowed origins    |
+| `NEXT_PUBLIC_PYTHON_API_URL`      | `apps/agentic-executor/` | API base URL the browser calls     |
 
 Three of these need more than a line:
 
-- **`LLM_MODEL` and `EMBEDDING_MODEL`** name the same aliases twice. LiteLLM
-  publishes them and pythonapi asks for them by name, so both services must use
-  the same strings. That is why they sit in the shared root file.
-- **`LLM_API_KEY`** is the gateway key. Compose passes the same value to the
-  LiteLLM container under its own name, `LITELLM_MASTER_KEY`.
+- **The alias names are not here.** `chat-default`, `chat-backup`, and
+  `embedding-default` are literals in `apps/pythonapi/litellm.config.yaml`,
+  because the fallback rule keys on them and an env-driven name would let the
+  rule and the alias drift apart. These keys pick which box serves each alias,
+  not what it is called.
+- **`LLM_API_KEY`** is the LiteLLM master key, and the only LLM credential the
+  stack has. Leave it unset for a local gateway: the service then sends no
+  `Authorization` header. It is not LM Studio's or LiteRT's key. Both are
+  keyless, and their placeholder lives in the gateway config.
 - **`EMBEDDING_DIM`** must match the active provider: 64 for the mock, 768 for
   nomic-embed. Qdrant fixes a collection's vector size when it creates the
   collection, so delete the collection after you change this.

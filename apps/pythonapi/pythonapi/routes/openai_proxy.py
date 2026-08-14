@@ -34,12 +34,15 @@ def _copy_headers(
 async def _forward_request(request: Request, upstream_path: str) -> Response:
     body = await request.body()
     headers = _copy_headers(request.headers.items(), _REQUEST_HEADER_BLOCKLIST)
-    if not settings.LLM_API_KEY:
+    if not settings.LLM_BASE_URL:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="LLM_API_KEY is not configured",
+            detail="LLM_BASE_URL is not configured",
         )
-    headers.setdefault("authorization", f"Bearer {settings.LLM_API_KEY}")
+    # Only when the gateway has a master key. A keyless local stack needs no
+    # Authorization header, and an empty bearer token reads as a bad one.
+    if settings.LLM_API_KEY:
+        headers.setdefault("authorization", f"Bearer {settings.LLM_API_KEY}")
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:

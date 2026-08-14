@@ -67,7 +67,7 @@ async def run_chat_agent(
 
     client = AsyncOpenAI(
         base_url=settings.LLM_BASE_URL,
-        api_key=settings.LLM_API_KEY,
+        api_key=settings.gateway_api_key,
     )
     messages = _to_openai_messages(agent_input.messages)
     tool_schemas = _tool_schemas(agent_input, tool_registry)

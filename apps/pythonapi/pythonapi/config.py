@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     # whichever provider is active - the default pair here is the mock and its
     # 64 dimensions; nomic-embed-text needs 768. Override both together.
     EMBEDDING_PROVIDER: Literal["mock", "openai_compatible"] = "mock"
-    LLM_BASE_URL: str | None = None
+    LLM_BASE_URL: str = "http://localhost:4000/v1"
     LLM_API_KEY: str | None = None
     LLM_MODEL: str = "chat-default"
     # How many times one run may call tools before the agent stops asking the
@@ -138,6 +138,16 @@ class Settings(BaseSettings):
     # server-side proxy, so its origin has to be listed here. Comma-separated
     # rather than a list so docker-compose can pass it as a plain string.
     CORS_ALLOW_ORIGINS: str = "http://localhost:4001"
+
+    @property
+    def gateway_api_key(self) -> str:
+        """LLM_API_KEY as the OpenAI client requires it: a non-empty string.
+
+        The client refuses to build without one, but a local LiteLLM with no
+        master key accepts any value. So a keyless stack sends a placeholder
+        rather than making the key a deployment requirement it is not.
+        """
+        return self.LLM_API_KEY or "no-key-required"
 
     @property
     def cors_allow_origins(self) -> list[str]:

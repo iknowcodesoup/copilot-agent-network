@@ -25,12 +25,13 @@ async def post_agent(
     tool_registry: VoiceToolRegistry | None = Depends(get_voice_tool_registry),
 ) -> StreamingResponse:
     """Run the chat agent and stream its AG-UI events."""
-    # A missing key is a deployment error, not a run error: fail before the
+    # A missing gateway is a deployment error, not a run error: fail before the
     # stream opens so the client sees a 500 instead of an empty event stream.
-    if not settings.LLM_API_KEY:
+    # The key is not checked - a local LiteLLM with no master key is valid.
+    if not settings.LLM_BASE_URL:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="LLM_API_KEY is not configured",
+            detail="LLM_BASE_URL is not configured",
         )
 
     encoder = EventEncoder(accept=request.headers.get("accept"))
