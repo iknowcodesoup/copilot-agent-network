@@ -137,15 +137,32 @@ services:
       LITELLM_EMBEDDING_BACKEND_MODEL: ${LITELLM_EMBEDDING_BACKEND_MODEL:-openai/text-embedding-nomic}
       LLM_MODEL: ${LLM_MODEL:-chat-default}
       LITELLM_UPSTREAM2_API_BASE: ${LITELLM_UPSTREAM2_API_BASE:-http://host.docker.internal:9379/v1}
-      LITELLM_CHAT2_BACKEND_MODEL: ${LITELLM_CHAT2_BACKEND_MODEL:-gemma-4-12B-it-gpu.litertlm}
+      LITELLM_CHAT2_BACKEND_MODEL: ${LITELLM_CHAT2_BACKEND_MODEL:-openai/gemma-4-12B-it-gpu.litertlm}
       LLM2_MODEL: ${LLM2_MODEL:-chat-backup}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embedding-default}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      DATABASE_URL: postgresql://litellm:litellm@litellm-db:5432/litellm
     depends_on:
       langfuse:
         condition: service_healthy
+      litellm-db:
+        condition: service_healthy
+
+  litellm-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -238,6 +255,7 @@ services:
 volumes:
   langfuse-postgres:
   pythonapi-postgres:
+  litellm-postgres:
   qdrant-data:
   redis-data:
   hf-cache:
