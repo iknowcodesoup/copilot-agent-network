@@ -32,18 +32,42 @@ class VoiceRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
 
 
+class VoiceContribution(BaseModel):
+    """One video's clips, committed under one speaker label, into one voice.
+
+    The audit trail Story 3.2 introduces (FR19): every row traces back to the
+    run and video that produced it. Append-only - see
+    repositories/voice_contributions.py.
+    """
+
+    id: str
+    voice_id: str
+    run_id: str
+    video_id: str | None = None
+    video_title: str | None = None
+    speaker_label: str
+    created_at: datetime
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def strip_timezone(cls, v: datetime) -> datetime:
+        if v.tzinfo is not None:
+            return v.replace(tzinfo=None)
+        return v
+
+
 class Voice(BaseModel):
     """One voice's complete state.
 
-    contributions is always empty in this story - no contribution record
-    exists until Story 3.2's commit step creates one.
+    contributions is always empty before Story 3.2's commit step creates a
+    contribution row for this voice.
     """
 
     id: str
     name: str
     phase: VoicePhase
     checkpoint_path: str | None = None
-    contributions: list = Field(default_factory=list)
+    contributions: list[VoiceContribution] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -61,3 +85,28 @@ class VoiceResponse(BaseModel):
 
     id: str
     phase: VoicePhase
+
+
+class RunAssignRequest(BaseModel):
+    """Map a run's speaker labels to Voice ids (Story 3.2).
+
+    A full replace of the run's stored assignment, same as
+    SpeakerAssignmentRequest is for speaker_map - so it can be called more
+    than once before commit. A voice id of None discards that speaker,
+    same meaning as speaker_map's None.
+    """
+
+    assignments: dict[str, str | None]
+
+
+class RunAssignResponse(BaseModel):
+    """What got stored, for the caller to confirm against."""
+
+    run_id: str
+    voice_assignments: dict[str, str | None]
+
+
+class RunCommitResponse(BaseModel):
+    """The contribution rows one commit created."""
+
+    contributions: list[VoiceContribution] = Field(default_factory=list)

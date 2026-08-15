@@ -10,8 +10,12 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from pythonapi.dependencies import get_required_voice_repository
+from pythonapi.dependencies import (
+    get_required_voice_contribution_repository,
+    get_required_voice_repository,
+)
 from pythonapi.models.voices import Voice, VoicePhase, VoiceRequest, VoiceResponse
+from pythonapi.repositories.voice_contributions import VoiceContributionRepository
 from pythonapi.repositories.voices import VoiceRepository
 
 router = APIRouter(prefix="/voices", tags=["Voices"])
@@ -58,5 +62,12 @@ async def create_voice(
 async def get_voice(
     voice_id: str,
     repository: VoiceRepository = Depends(get_required_voice_repository),
+    contribution_repository: VoiceContributionRepository = Depends(
+        get_required_voice_contribution_repository
+    ),
 ):
-    return await _load_voice(repository, voice_id)
+    voice = await _load_voice(repository, voice_id)
+    voice.contributions = await contribution_repository.list_contributions_for_voice(
+        voice_id
+    )
+    return voice

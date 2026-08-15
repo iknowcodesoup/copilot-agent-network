@@ -60,6 +60,10 @@ from pythonapi.repositories.pii_vault import (
 )
 from pythonapi.repositories.postgres import PostgresDocumentRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
+from pythonapi.repositories.voice_contributions import (
+    InMemoryVoiceContributionRepository,
+    PostgresVoiceContributionRepository,
+)
 from pythonapi.repositories.voice_runs import (
     InMemoryVoiceRunRepository,
     PostgresVoiceRunRepository,
@@ -230,6 +234,13 @@ async def lifespan(app: FastAPI):
         PostgresVoiceRepository(app.state.postgres_engine)
         if app.state.postgres_engine is not None
         else InMemoryVoiceRepository()
+    )
+    # Wired unconditionally on postgres_engine too - the audit trail must
+    # record a contribution regardless of whether the factory is configured.
+    app.state.voice_contribution_repository = (
+        PostgresVoiceContributionRepository(app.state.postgres_engine)
+        if app.state.postgres_engine is not None
+        else InMemoryVoiceContributionRepository()
     )
     # Fan-out for voice run changes. Redis is optional here as everywhere: with
     # it, a change made by any API instance reaches every browser; without it,
