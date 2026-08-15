@@ -53,3 +53,19 @@ Entries added by review triage. Not modified retroactively — new findings appe
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-3-trigger-training-explicitly-or-automatically-independent-of.md`
   summary: `VoiceRepository.claim_voices`/`claim_voice` (both `InMemoryVoiceRepository` and `PostgresVoiceRepository`) have no test covering the `limit` parameter's batching behavior or `created_at` tie-breaking order.
   evidence: Round review (blind-hunter) flagged this. The mirrored `VoiceRunRepository.claim_runs` has the identical gap — no batching/ordering test exists for it either, per grep across `apps/pythonapi/tests/`. Pre-existing gap in the pattern being mirrored, not unique to this story.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-split-the-dashboard-into-videos-and-voices-views.md`
+  summary: `DashboardNav`'s active-tab check (`apps/agentic-executor/src/app/features/nav/dashboard_nav.tsx`) uses an exact `pathname === item.href` match, so it will not highlight "Videos" or "Voices" once either view grows nested routes (e.g. `/videos/[id]`).
+  evidence: Blind-hunter and edge-case-hunter both flagged this independently. No nested routes exist under `/videos` or `/voices` yet — Story 3.4 only adds the two top-level segments — so this is a forward-looking gap, not a current defect.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-split-the-dashboard-into-videos-and-voices-views.md`
+  summary: Neither `apps/agentic-executor/src/app/videos/page.tsx` nor `apps/agentic-executor/src/app/voices/page.tsx` sets a route-specific `<title>` metadata export, so the browser tab/history title stays whatever the root layout's static `metadata.title` ("Agentic Executor") already is, unchanged across both views.
+  evidence: Blind-hunter flagged this. Pre-existing: the single old dashboard page never set per-page metadata either, so this story neither introduces nor worsens it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-split-the-dashboard-into-videos-and-voices-views.md`
+  summary: The new `<nav>` element in `dashboard_nav.tsx` has no `aria-label`, so a screen reader cannot distinguish it by name from any other landmark region on the page (e.g. if the chat sidebar or a future region also uses `<nav>`).
+  evidence: Blind-hunter flagged this. Cheap fix but not spec-mandated; deferred rather than patched inline since it's an accessibility enhancement, not a functional gap.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-split-the-dashboard-into-videos-and-voices-views.md`
+  summary: `apps/agentic-executor-e2e/src/example.spec.ts` navigates to `/` and asserts the dashboard `h1`, with a comment claiming "One page: the dashboard is the app." Both are now stale — `/` redirects to `/videos` rather than rendering the dashboard directly — though the assertion still passes coincidentally because `VideosPage` renders the same heading text.
+  evidence: Verification-gap review confirmed by reading the file. Not touched by this story's diff, and per explicit user directive no Playwright/e2e/UI test work is being done for this app right now (UX is not final), so fixing the stale comment/assertion is deferred rather than patched.
