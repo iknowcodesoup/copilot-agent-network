@@ -37,3 +37,19 @@ Entries added by review triage. Not modified retroactively — new findings appe
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-3-skip-redundant-preprocessing.md`
   summary: `stage_preprocess` has no locking or mutual exclusion around its read-fingerprint / run-docker / write-sidecar sequence. Two overlapping invocations for the same character could both observe "stale," both launch `run_docker` concurrently, and race on `config.json` and the sidecar file.
   evidence: Round-2 review (blind-hunter) identified this. Pre-existing, systemic to the whole stage-based CLI -- no other stage in `main.py` (e.g. `stage_youtube_commit`) locks either, and the old presence-only check had the same race. Not introduced or worsened by this story.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-3-trigger-training-explicitly-or-automatically-independent-of.md`
+  summary: Neither `PostgresVoiceRepository.update_voice` (`repositories/voices.py`) nor its mirror `PostgresVoiceRunRepository.update_run` (`repositories/voice_runs.py`) scope their `UPDATE` to `lease_owner`. A reconciler instance whose lease already expired can still overwrite a newer owner's phase/job-id write if its own write lands after the new owner's.
+  evidence: Round review (blind-hunter, edge-case-hunter) flagged this for the new `VoiceRepository.update_voice`. Confirmed by reading `voice_runs.py`'s `update_run`: it uses the identical `session.get` + attribute-mutation pattern with no `WHERE lease_owner = :owner` guard, so this is the established codebase pattern for both entities, not a regression this story introduced.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-3-trigger-training-explicitly-or-automatically-independent-of.md`
+  summary: `POST /voices/{id}/train` and the auto-trigger in `commit_run` both clear `Voice.voyicer_job_id` to start a fresh job without calling `gateway.cancel_job()` on any job the cleared id pointed to, so a superseded training/export job can keep running on the factory host, untracked and unbilled-for by the app.
+  evidence: Round review (blind-hunter, edge-case-hunter) flagged this for the new `/train` route. Confirmed by reading `voice_pipeline_graph.py`'s `_advance`/`_fail`, which do the identical "clear `voyicer_job_id`, never cancel" on every ingestion phase transition — this is the established pattern the new training graph mirrors, not a new gap.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-3-trigger-training-explicitly-or-automatically-independent-of.md`
+  summary: `VoiceTrainingReconciler.tick()` (`workers/voice_training_reconciler.py`) lets an unexpected exception from `_advance` propagate out of the `try/finally`, aborting the rest of the claimed batch; the remaining claimed voices stay leased until their lease naturally expires rather than being released or retried immediately.
+  evidence: Round review (edge-case-hunter) flagged this. Confirmed by reading `voice_run_reconciler.py`'s `tick()`: it has the identical `try/finally` structure with no batch-level exception isolation, so this is inherited from the pattern being mirrored, not introduced by this story.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-3-trigger-training-explicitly-or-automatically-independent-of.md`
+  summary: `VoiceRepository.claim_voices`/`claim_voice` (both `InMemoryVoiceRepository` and `PostgresVoiceRepository`) have no test covering the `limit` parameter's batching behavior or `created_at` tie-breaking order.
+  evidence: Round review (blind-hunter) flagged this. The mirrored `VoiceRunRepository.claim_runs` has the identical gap — no batching/ordering test exists for it either, per grep across `apps/pythonapi/tests/`. Pre-existing gap in the pattern being mirrored, not unique to this story.

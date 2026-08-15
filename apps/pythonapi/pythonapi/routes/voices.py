@@ -13,10 +13,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pythonapi.dependencies import (
     get_required_voice_contribution_repository,
     get_required_voice_repository,
+    get_required_voice_training_reconciler,
 )
 from pythonapi.models.voices import Voice, VoicePhase, VoiceRequest, VoiceResponse
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
 from pythonapi.repositories.voices import VoiceRepository
+from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 router = APIRouter(prefix="/voices", tags=["Voices"])
 
@@ -71,3 +73,30 @@ async def get_voice(
         voice_id
     )
     return voice
+
+
+@router.post(
+    "/{voice_id}/train",
+    response_model=VoiceResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def train_voice(
+    voice_id: str,
+    repository: VoiceRepository = Depends(get_required_voice_repository),
+    training_reconciler: VoiceTrainingReconciler = Depends(
+        get_required_voice_training_reconciler
+    ),
+):
+    """Start training, on demand, whatever the voice's current phase.
+
+    Retrain is always available (Story 3.3): unlike approve_run's single-
+    allowed-phase 409 guard, this always sets TRAINING and wakes the
+    reconciler, so an operator can kick off a fresh run even while one is
+    already in flight. Only an unknown voice is rejected.
+    """
+    voice = await _load_voice(repository, voice_id)
+    voice.phase = VoicePhase.TRAINING
+    voice.voyicer_job_id = None
+    await repository.update_voice(voice)
+    training_reconciler.wake(voice_id)
+    return VoiceResponse(id=voice.id, phase=voice.phase)

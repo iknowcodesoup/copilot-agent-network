@@ -33,6 +33,7 @@ from pythonapi.dependencies import (
     get_required_voice_repository,
     get_required_voice_run_reconciler,
     get_required_voice_run_repository,
+    get_voice_training_reconciler,
 )
 from pythonapi.models.voice import (
     ClipDecisionRequest,
@@ -58,11 +59,13 @@ from pythonapi.models.voices import (
     RunAssignResponse,
     RunCommitResponse,
     VoiceContribution,
+    VoicePhase,
 )
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
 from pythonapi.repositories.voices import VoiceRepository
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
+from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 router = APIRouter(prefix="/voice", tags=["Voice"])
 
@@ -402,13 +405,22 @@ async def commit_run(
     contribution_repository: VoiceContributionRepository = Depends(
         get_required_voice_contribution_repository
     ),
+    voice_repository: VoiceRepository = Depends(get_required_voice_repository),
+    training_reconciler: VoiceTrainingReconciler | None = Depends(
+        get_voice_training_reconciler
+    ),
 ):
     """Turn the run's stored assignment into immutable voice_contributions
     rows and advance the run to the terminal COMMITTED phase (Story 3.2).
 
-    DB-only, like assign_run: no factory call. Wiring a voice's clips into an
-    actual training run is Story 3.3's job, triggered off the contribution
-    rows created here.
+    DB-only, like assign_run: no factory call, and it must keep working
+    without a voice factory configured, same as assign_run. Each committed
+    voice moves out of AWAITING_COMMIT into TRAINING here - the same shape
+    as approve_run setting run.phase = COMMITTING before its reconciler picks
+    the run up - and is then woken on the training reconciler (Story 3.3),
+    when one exists, so training starts without waiting on the interval
+    backstop. Without a factory there is nothing to wake, and the phase
+    change plus the contribution row are the durable record either way.
     """
     run = await _require_awaiting_review(repository, run_id)
 
@@ -437,6 +449,17 @@ async def commit_run(
     ]
     for contribution in contributions:
         await contribution_repository.create_contribution(contribution)
+
+    # One phase flip and one wake per distinct voice, not per contribution:
+    # several speakers in this run can map to the same voice.
+    for voice_id in {contribution.voice_id for contribution in contributions}:
+        voice = await voice_repository.get_voice(voice_id)
+        if voice is not None:
+            voice.phase = VoicePhase.TRAINING
+            voice.voyicer_job_id = None
+            await voice_repository.update_voice(voice)
+        if training_reconciler is not None:
+            training_reconciler.wake(voice_id)
 
     run.phase = VoiceRunPhase.COMMITTED
     await repository.update_run(run)

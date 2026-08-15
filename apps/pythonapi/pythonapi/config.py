@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # How long one API instance owns a run while it reconciles it. The lease
     # expires on its own, so an instance that dies never strands a run.
     VOICE_LEASE_SECONDS: float = 60.0
+    # Same two knobs as above, for VoiceTrainingReconciler. A separate pair
+    # rather than reusing VOICE_RECONCILE_INTERVAL_SECONDS/VOICE_LEASE_SECONDS
+    # because training and ingest are independent pipelines (FR21) that may
+    # need different cadences in practice.
+    VOICE_TRAINING_RECONCILE_INTERVAL_SECONDS: float = 15.0
+    VOICE_TRAINING_LEASE_SECONDS: float = 60.0
     # Redis Stream carrying voice run events out to every API instance, and
     # from there to the browser over SSE. Bounded: Redis is a delivery and
     # replay buffer here, never the state store.
