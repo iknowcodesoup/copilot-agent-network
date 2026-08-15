@@ -318,6 +318,7 @@ class PostgresVoiceRunRepository:
             row.diarize = run.diarize
             row.num_speakers = run.num_speakers
             row.speaker_map = dict(run.speaker_map)
+            row.voice_assignments = dict(run.voice_assignments)
             row.voyicer_job_id = run.voyicer_job_id
             row.ingest_stage_index = run.ingest_stage_index
             row.commit_stage_index = run.commit_stage_index
@@ -366,6 +367,7 @@ def _row_from_run(run: VoiceRun) -> VoiceRunRow:
         diarize=run.diarize,
         num_speakers=run.num_speakers,
         speaker_map=dict(run.speaker_map),
+        voice_assignments=dict(run.voice_assignments),
         voyicer_job_id=run.voyicer_job_id,
         ingest_stage_index=run.ingest_stage_index,
         commit_stage_index=run.commit_stage_index,
@@ -395,6 +397,7 @@ def _run_from_row(row: VoiceRunRow) -> VoiceRun:
         diarize=row.diarize,
         num_speakers=row.num_speakers,
         speaker_map=row.speaker_map or {},
+        voice_assignments=row.voice_assignments or {},
         voyicer_job_id=row.voyicer_job_id,
         ingest_stage_index=row.ingest_stage_index,
         commit_stage_index=row.commit_stage_index,

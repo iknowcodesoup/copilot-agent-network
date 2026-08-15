@@ -27,8 +27,10 @@ from pythonapi.core.voice_factory_gateway import (
     VoiceFactoryGateway,
 )
 from pythonapi.dependencies import (
+    get_required_voice_contribution_repository,
     get_required_voice_event_stream,
     get_required_voice_factory_gateway,
+    get_required_voice_repository,
     get_required_voice_run_reconciler,
     get_required_voice_run_repository,
 )
@@ -51,7 +53,15 @@ from pythonapi.models.voice import (
     VoiceRunResponse,
     VoiceWebhookEvent,
 )
+from pythonapi.models.voices import (
+    RunAssignRequest,
+    RunAssignResponse,
+    RunCommitResponse,
+    VoiceContribution,
+)
+from pythonapi.repositories.voice_contributions import VoiceContributionRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
+from pythonapi.repositories.voices import VoiceRepository
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
 
 router = APIRouter(prefix="/voice", tags=["Voice"])
@@ -339,6 +349,98 @@ async def approve_run(
     run.error = None
     await repository.update_run(run)
     return run
+
+
+async def _require_awaiting_review(
+    repository: VoiceRunRepository, run_id: str
+) -> VoiceRun:
+    run = await _load_run(repository, run_id)
+    if run.phase is not VoiceRunPhase.AWAITING_REVIEW:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"This run is {run.phase}, so it is not waiting for review",
+        )
+    return run
+
+
+@router.post("/runs/{run_id}/assign", response_model=RunAssignResponse)
+async def assign_run(
+    run_id: str,
+    assign_request: RunAssignRequest,
+    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
+    voice_repository: VoiceRepository = Depends(get_required_voice_repository),
+):
+    """Store a speaker -> Voice mapping on the run, without starting anything.
+
+    DB-only: no factory call, no phase change. A full replace of
+    run.voice_assignments, same as approve_run's speaker_map write, so a
+    reviewer can call this more than once before committing (Story 3.2).
+    """
+    run = await _require_awaiting_review(repository, run_id)
+
+    for voice_id in assign_request.assignments.values():
+        if voice_id is None:
+            continue
+        if await voice_repository.get_voice(voice_id) is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"Voice {voice_id!r} not found"
+            )
+
+    run.voice_assignments = assign_request.assignments
+    await repository.update_run(run)
+    return RunAssignResponse(run_id=run.id, voice_assignments=run.voice_assignments)
+
+
+@router.post(
+    "/runs/{run_id}/commit",
+    response_model=RunCommitResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def commit_run(
+    run_id: str,
+    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
+    contribution_repository: VoiceContributionRepository = Depends(
+        get_required_voice_contribution_repository
+    ),
+):
+    """Turn the run's stored assignment into immutable voice_contributions
+    rows and advance the run to the terminal COMMITTED phase (Story 3.2).
+
+    DB-only, like assign_run: no factory call. Wiring a voice's clips into an
+    actual training run is Story 3.3's job, triggered off the contribution
+    rows created here.
+    """
+    run = await _require_awaiting_review(repository, run_id)
+
+    assigned_speakers = {
+        speaker_label: voice_id
+        for speaker_label, voice_id in run.voice_assignments.items()
+        if voice_id is not None
+    }
+    if not assigned_speakers:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Assign at least one speaker before commit"
+        )
+
+    now = datetime.now(UTC)
+    contributions = [
+        VoiceContribution(
+            id=uuid.uuid4().hex,
+            voice_id=voice_id,
+            run_id=run.id,
+            video_id=run.video_id,
+            video_title=run.video_title,
+            speaker_label=speaker_label,
+            created_at=now,
+        )
+        for speaker_label, voice_id in assigned_speakers.items()
+    ]
+    for contribution in contributions:
+        await contribution_repository.create_contribution(contribution)
+
+    run.phase = VoiceRunPhase.COMMITTED
+    await repository.update_run(run)
+    return RunCommitResponse(contributions=contributions)
 
 
 @router.get("/runs/{run_id}/clips/{clip_id}/audio")
