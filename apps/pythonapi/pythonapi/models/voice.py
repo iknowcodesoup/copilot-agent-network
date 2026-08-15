@@ -115,7 +115,6 @@ class VoiceRun(BaseModel):
     commit_stage_index: int = 0
     clip_count: int = 0
     approved_count: int = 0
-    checkpoint_path: str | None = None
     # last training progress the factory reported, over the webhook
     current_epoch: int | None = None
     current_loss: float | None = None

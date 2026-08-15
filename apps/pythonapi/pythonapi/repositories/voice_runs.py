@@ -323,7 +323,6 @@ class PostgresVoiceRunRepository:
             row.commit_stage_index = run.commit_stage_index
             row.clip_count = run.clip_count
             row.approved_count = run.approved_count
-            row.checkpoint_path = run.checkpoint_path
             row.current_epoch = run.current_epoch
             row.current_loss = run.current_loss
             row.error = run.error
@@ -372,7 +371,6 @@ def _row_from_run(run: VoiceRun) -> VoiceRunRow:
         commit_stage_index=run.commit_stage_index,
         clip_count=run.clip_count,
         approved_count=run.approved_count,
-        checkpoint_path=run.checkpoint_path,
         current_epoch=run.current_epoch,
         current_loss=run.current_loss,
         error=run.error,
@@ -402,7 +400,6 @@ def _run_from_row(row: VoiceRunRow) -> VoiceRun:
         commit_stage_index=row.commit_stage_index,
         clip_count=row.clip_count,
         approved_count=row.approved_count,
-        checkpoint_path=row.checkpoint_path,
         current_epoch=row.current_epoch,
         current_loss=row.current_loss,
         error=row.error,
