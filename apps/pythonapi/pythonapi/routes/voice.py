@@ -394,6 +394,25 @@ async def assign_run(
     return RunAssignResponse(run_id=run.id, voice_assignments=run.voice_assignments)
 
 
+@router.post("/runs/{run_id}/discard", response_model=VoiceRun)
+async def discard_run(
+    run_id: str,
+    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
+):
+    """Abandon a review and clear whatever was assigned so far.
+
+    Only AWAITING_REVIEW has anything to discard - there is no assignment to
+    clear once a run has moved on, so any other phase is rejected the same
+    way assign_run and commit_run reject it, just for the opposite reason:
+    those two require AWAITING_REVIEW to make forward progress, this one
+    requires it because it is the only phase discard makes sense in.
+    """
+    run = await _require_awaiting_review(repository, run_id)
+    run.voice_assignments = {}
+    await repository.update_run(run)
+    return run
+
+
 @router.post(
     "/runs/{run_id}/commit",
     response_model=RunCommitResponse,

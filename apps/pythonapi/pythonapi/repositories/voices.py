@@ -41,6 +41,15 @@ class VoiceRepository(Protocol):
         """The voice with this name, or None. Names are unique (FR22)."""
         ...
 
+    async def search_voices(self, query: str, limit: int = 20) -> list[Voice]:
+        """Voices whose name contains query, case-insensitively, by name.
+
+        Backs the assign-speaker combobox (Story 3.5): a short list to pick
+        an existing voice from, or a signal that none matches and inline
+        create is the only option.
+        """
+        ...
+
     async def claim_voices(
         self, owner: str, lease_seconds: float, limit: int = 50
     ) -> list[Voice]:
@@ -87,6 +96,14 @@ class InMemoryVoiceRepository:
             if voice.name == name:
                 return voice.model_copy(deep=True)
         return None
+
+    async def search_voices(self, query: str, limit: int = 20) -> list[Voice]:
+        needle = query.lower()
+        matches = [
+            voice for voice in self._voices.values() if needle in voice.name.lower()
+        ]
+        matches.sort(key=lambda voice: voice.name)
+        return [voice.model_copy(deep=True) for voice in matches[:limit]]
 
     async def claim_voices(
         self, owner: str, lease_seconds: float, limit: int = 50
@@ -152,6 +169,16 @@ class PostgresVoiceRepository:
             )
             row = result.scalar_one_or_none()
             return _voice_from_row(row) if row else None
+
+    async def search_voices(self, query: str, limit: int = 20) -> list[Voice]:
+        async with AsyncSession(self._engine) as session:
+            result = await session.execute(
+                select(VoiceRow)
+                .where(VoiceRow.name.ilike(f"%{query}%"))
+                .order_by(VoiceRow.name)
+                .limit(limit)
+            )
+            return [_voice_from_row(row) for row in result.scalars()]
 
     async def claim_voices(
         self, owner: str, lease_seconds: float, limit: int = 50
