@@ -2,7 +2,7 @@
 title: 'Route One Commit to Multiple Characters Across Multiple Videos'
 type: 'feature'
 created: '2026-08-14'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 context: []
 baseline_commit: '64759bd62ed44d297def8f2d3ce5f521471848ee'
