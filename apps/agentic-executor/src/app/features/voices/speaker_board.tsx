@@ -3,12 +3,14 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ClipRow } from "./clip_row";
+import { VoiceSpeakerCombobox } from "./voice_speaker_combobox";
 import {
-  useApproveRun,
+  useAssignRun,
+  useCommitRun,
+  useDiscardRun,
   useSpeakerBoard,
   useUpdateClips,
   type SpeakerGroup,
@@ -39,30 +41,26 @@ export function SpeakerBoard({
 }) {
   const board = useSpeakerBoard(runId, true);
   const updateClips = useUpdateClips(runId);
-  const approveRun = useApproveRun(runId);
+  const assignRun = useAssignRun(runId);
+  const commitRun = useCommitRun(runId);
+  const discardRun = useDiscardRun(runId);
 
-  const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
-
+  const [assigning, setAssigning] = useState(false);
   /*
-   * Seed each real speaker with the primary character so the common case -
-   * one wanted voice - needs no typing. Only speakers left blank are discarded.
+   * Local echo of what assign_run has stored, keyed by speaker label. The
+   * combobox shows the name; commit/assign payloads need the id, so both
+   * are tracked side by side rather than round-tripping through the board
+   * query on every selection.
    */
-  const effectiveAssignments = useMemo(() => {
-    const seeded: Record<string, string> = {};
-    for (const group of board.data?.speakers ?? []) {
-      if (!group.speakerLabel) {
-        continue;
-      }
-      seeded[group.speakerLabel] =
-        assignments[group.speakerLabel] ?? group.assignedCharacter ?? "";
-    }
-    return seeded;
-  }, [board.data, assignments]);
+  const [assignedNames, setAssignedNames] = useState<Record<string, string>>(
+    {},
+  );
+  const [assignedVoiceIds, setAssignedVoiceIds] = useState<
+    Record<string, string>
+  >({});
 
-  const assignedCount = Object.values(effectiveAssignments).filter(
-    (character) => character.trim().length > 0,
-  ).length;
+  const assignedCount = Object.keys(assignedVoiceIds).length;
 
   if (board.isLoading) {
     return <Skeleton className="h-64 w-full" />;
@@ -90,14 +88,46 @@ export function SpeakerBoard({
     );
   }
 
-  function approve() {
-    const speakerMap: Record<string, string | null> = {};
-    for (const [speakerLabel, character] of Object.entries(
-      effectiveAssignments,
-    )) {
-      speakerMap[speakerLabel] = character.trim() || null;
+  /*
+   * Autosave-on-select: each combobox selection calls assign_run right away,
+   * before "Commit assignments" is ever clicked. assign_run is a full
+   * replace and is documented as safe to call repeatedly (voice.py:376-381),
+   * so this keeps "Commit assignments" a single cheap call while still
+   * satisfying "Assign speakers only opens the combobox, it never starts
+   * training on its own".
+   */
+  function selectVoiceForSpeaker(
+    speakerLabel: string,
+    voiceId: string,
+    voiceName: string,
+  ) {
+    const nextVoiceIds = { ...assignedVoiceIds, [speakerLabel]: voiceId };
+    setAssignedVoiceIds(nextVoiceIds);
+    setAssignedNames((current) => ({ ...current, [speakerLabel]: voiceName }));
+
+    const assignments: Record<string, string | null> = {};
+    for (const group of speakers) {
+      if (!group.speakerLabel) {
+        continue;
+      }
+      assignments[group.speakerLabel] =
+        nextVoiceIds[group.speakerLabel] ?? null;
     }
-    approveRun.mutate(speakerMap);
+    assignRun.mutate(assignments);
+  }
+
+  function commit() {
+    commitRun.mutate();
+  }
+
+  function discard() {
+    discardRun.mutate(undefined, {
+      onSuccess: () => {
+        setAssignedNames({});
+        setAssignedVoiceIds({});
+        setAssigning(false);
+      },
+    });
   }
 
   return (
@@ -119,20 +149,22 @@ export function SpeakerBoard({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {speakerLabel !== null && (
-                  <Input
-                    aria-label={`Character for ${speakerLabel}`}
-                    placeholder="discard"
-                    className="h-7 w-40"
+                {speakerLabel !== null && assigning && (
+                  <VoiceSpeakerCombobox
+                    speakerLabel={speakerLabel}
+                    assignedVoiceName={assignedNames[speakerLabel] ?? null}
                     disabled={!awaitingReview}
-                    value={effectiveAssignments[speakerLabel] ?? ""}
-                    onChange={(event) =>
-                      setAssignments((current) => ({
-                        ...current,
-                        [speakerLabel]: event.target.value,
-                      }))
+                    onSelect={(voiceId, voiceName) =>
+                      selectVoiceForSpeaker(speakerLabel, voiceId, voiceName)
                     }
                   />
+                )}
+                {speakerLabel !== null && !assigning && (
+                  <p className="text-xs text-muted-foreground">
+                    {assignedNames[speakerLabel]
+                      ? `assigned to ${assignedNames[speakerLabel]}`
+                      : "awaiting assignment"}
+                  </p>
                 )}
                 <Button
                   size="sm"
@@ -191,23 +223,57 @@ export function SpeakerBoard({
           <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-4">
             <p className="text-xs text-muted-foreground">
               {assignedCount === 0
-                ? `Name a character for at least one speaker. Blank means discard. Unlabelled clips go to ${primaryCharacter}.`
-                : `${assignedCount} speaker${assignedCount === 1 ? "" : "s"} assigned. Approving starts training and cannot be undone from here.`}
+                ? `Assign a voice to at least one speaker for ${primaryCharacter}. Unassigned speakers are left out of the commit.`
+                : `${assignedCount} speaker${assignedCount === 1 ? "" : "s"} assigned.`}
             </p>
-            <Button
-              disabled={assignedCount === 0 || approveRun.isPending}
-              onClick={approve}
-            >
-              {approveRun.isPending ? "Starting..." : "Approve and train"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant={assigning ? "outline" : "secondary"}
+                onClick={() => setAssigning((current) => !current)}
+              >
+                {assigning ? "Done assigning" : "Assign speakers"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={discardRun.isPending}
+                onClick={discard}
+              >
+                {discardRun.isPending ? "Discarding..." : "Discard"}
+              </Button>
+              <Button
+                size="sm"
+                disabled={assignedCount === 0 || commitRun.isPending}
+                onClick={commit}
+              >
+                {commitRun.isPending ? "Committing..." : "Commit assignments"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
 
-      {approveRun.isError && (
+      {assignRun.isError && (
         <Alert variant="destructive">
           <AlertDescription>
-            {(approveRun.error as Error).message}
+            {(assignRun.error as Error).message}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {commitRun.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {(commitRun.error as Error).message}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {discardRun.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {(discardRun.error as Error).message}
           </AlertDescription>
         </Alert>
       )}

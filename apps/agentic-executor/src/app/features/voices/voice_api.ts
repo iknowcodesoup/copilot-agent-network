@@ -13,6 +13,15 @@ const pythonApiUrl =
 export const voiceApiBase = `${pythonApiUrl}/api/voice`;
 
 /*
+ * The durable Voice entity lives under its own router (routes/voices.py,
+ * plural), a sibling of the run-pipeline router above (routes/voice.py,
+ * singular) - see main.py's api_router.include_router calls. Same host,
+ * different path, so it needs its own base and its own request() rather
+ * than sharing voiceApiBase.
+ */
+export const voicesApiBase = `${pythonApiUrl}/api/voices`;
+
+/*
  * Phases the pipeline moves a run through. Mirrors VoiceRunPhase in
  * apps/pythonapi/pythonapi/models/voice.py - a union, not a TS enum.
  */
@@ -188,6 +197,60 @@ export interface ClipDecision {
 }
 
 /*
+ * The durable Voice entity (Story 3.1) - independent of any one run, and
+ * what the assign-speaker combobox searches and creates (Story 3.5).
+ */
+export const voicePhases = [
+  "awaiting_commit",
+  "training",
+  "exporting",
+  "ready",
+  "failed",
+] as const;
+
+export type VoicePhase = (typeof voicePhases)[number];
+
+export interface VoiceSummary {
+  id: string;
+  name: string;
+  phase: VoicePhase;
+}
+
+/*
+ * GET /voices/{id}'s full shape (Story 3.6): a VoiceSummary plus the
+ * contribution audit trail the card's popover and clips modal both read.
+ */
+export interface VoiceDetail {
+  id: string;
+  name: string;
+  phase: VoicePhase;
+  checkpointPath: string | null;
+  voyicerJobId: string | null;
+  contributions: VoiceContribution[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RunAssignResponse {
+  runId: string;
+  voiceAssignments: Record<string, string | null>;
+}
+
+export interface VoiceContribution {
+  id: string;
+  voiceId: string;
+  runId: string;
+  videoId: string | null;
+  videoTitle: string | null;
+  speakerLabel: string;
+  createdAt: string;
+}
+
+export interface RunCommitResponse {
+  contributions: VoiceContribution[];
+}
+
+/*
  * FastAPI speaks snake_case and this app speaks camelCase. Converting at the
  * boundary keeps every component in one convention, so no component has to
  * remember which side of the wire a field came from.
@@ -230,8 +293,12 @@ export class VoiceApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${voiceApiBase}${path}`, {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  base: string = voiceApiBase,
+): Promise<T> {
+  const response = await fetch(`${base}${path}`, {
     ...init,
     headers: init?.body
       ? { "Content-Type": "application/json", ...init?.headers }
@@ -275,6 +342,9 @@ export const voiceQueryKeys = {
   log: (runId: string) => ["voice", "runs", runId, "log"] as const,
   search: (query: string) => ["voice", "search", query] as const,
   characters: ["voice", "characters"] as const,
+  voices: (query: string) => ["voice", "voices", query] as const,
+  voiceList: ["voice", "voiceList"] as const,
+  voiceDetail: (voiceId: string) => ["voice", "voiceDetail", voiceId] as const,
 };
 
 export function clipAudioUrl(runId: string, clipId: string): string {
@@ -441,6 +511,131 @@ export function useRetryRun(runId: string) {
     onSuccess: (run) => {
       queryClient.setQueryData(voiceQueryKeys.run(runId), run);
       queryClient.invalidateQueries({ queryKey: voiceQueryKeys.runs });
+    },
+  });
+}
+
+/* Search voices by name, for the assign-speaker combobox (Story 3.5). An
+   empty query lists every voice, so a fresh combobox shows something rather
+   than nothing. enabled defaults to true; the combobox passes false while
+   it is closed, so it costs no request until the operator opens it. */
+export function useVoices(query: string, enabled = true) {
+  return useQuery({
+    queryKey: voiceQueryKeys.voices(query),
+    queryFn: () =>
+      request<VoiceSummary[]>(
+        `?query=${encodeURIComponent(query)}&limit=20`,
+        undefined,
+        voicesApiBase,
+      ),
+    enabled,
+    staleTime: 10_000,
+  });
+}
+
+/* Create a voice by name, for the combobox's inline-create path. Names are
+   unique (FR22), so the caller handles a 409 by treating it as a match
+   rather than an error. */
+export function useCreateVoice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      request<{ id: string; phase: VoicePhase }>(
+        "",
+        { method: "POST", body: jsonBody({ name }) },
+        voicesApiBase,
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["voice", "voices"] });
+      // voiceList (Story 3.6's Voices dashboard) is a separate cache key
+      // with no shared prefix - without this, a voice created here stays
+      // invisible on that view until something else refetches it.
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.voiceList });
+    },
+  });
+}
+
+/* Store a run's speaker -> Voice mapping, without starting anything
+   (Story 3.5's autosave-on-select: called on every combobox change, not
+   just at commit - assign_run is designed to be called repeatedly). */
+export function useAssignRun(runId: string) {
+  return useMutation({
+    mutationFn: (assignments: Record<string, string | null>) =>
+      request<RunAssignResponse>(`/runs/${runId}/assign`, {
+        method: "POST",
+        body: JSON.stringify({ assignments }),
+      }),
+  });
+}
+
+/* Turn the run's stored assignment into committed voice_contributions and
+   advance the run to COMMITTED. */
+export function useCommitRun(runId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      request<RunCommitResponse>(`/runs/${runId}/commit`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.run(runId) });
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.runs });
+    },
+  });
+}
+
+/* Abandon a review: clears voice_assignments and leaves the run in
+   AWAITING_REVIEW. */
+export function useDiscardRun(runId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      request<VoiceRun>(`/runs/${runId}/discard`, { method: "POST" }),
+    onSuccess: (run) => {
+      queryClient.setQueryData(voiceQueryKeys.run(runId), run);
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.runs });
+    },
+  });
+}
+
+/* Every voice, for the Voices view's card grid (Story 3.6). limit=50 is the
+   route's max, and an empty query matches everything, same contract
+   useVoices already relies on for the assign-speaker combobox. */
+export function useVoiceList() {
+  return useQuery({
+    queryKey: voiceQueryKeys.voiceList,
+    queryFn: () =>
+      request<VoiceSummary[]>("?query=&limit=50", undefined, voicesApiBase),
+  });
+}
+
+/* One voice's full detail, including its contribution audit trail - the
+   single fetch voice_card.tsx's popover and view-clips modal both read
+   from. */
+export function useVoiceDetail(voiceId: string) {
+  return useQuery({
+    queryKey: voiceQueryKeys.voiceDetail(voiceId),
+    queryFn: () =>
+      request<VoiceDetail>(`/${voiceId}`, undefined, voicesApiBase),
+  });
+}
+
+/* Start or restart training, whatever the voice's current phase (Story 3.3's
+   train_voice: always accepted). The card refetches both this voice's
+   detail and the list afterward so the phase shows without a page
+   reload. */
+export function useTrainVoice(voiceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      request<{ id: string; phase: VoicePhase }>(
+        `/${voiceId}/train`,
+        { method: "POST" },
+        voicesApiBase,
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: voiceQueryKeys.voiceDetail(voiceId),
+      });
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.voiceList });
     },
   });
 }

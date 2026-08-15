@@ -340,3 +340,62 @@ async def test_get_voice_still_returns_empty_contributions_before_any_commit(
 
     assert response.status_code == 200
     assert response.json()["contributions"] == []
+
+
+# --- discard ---------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_discard_clears_assignments_and_stays_in_awaiting_review(
+    assign_client, run_repository, voice_repository
+):
+    await run_repository.create_run(
+        make_run(
+            VoiceRunPhase.AWAITING_REVIEW,
+            voice_assignments={"SPEAKER_00": "voice1"},
+        )
+    )
+    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
+
+    response = assign_client.post("/api/voice/runs/run1/discard")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["phase"] == "awaiting_review"
+    assert body["voice_assignments"] == {}
+    stored = await run_repository.get_run("run1")
+    assert stored.phase is VoiceRunPhase.AWAITING_REVIEW
+    assert stored.voice_assignments == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "phase",
+    [
+        VoiceRunPhase.DOWNLOADING,
+        VoiceRunPhase.DIARIZING,
+        VoiceRunPhase.COMMITTING,
+        VoiceRunPhase.TRAINING,
+        VoiceRunPhase.READY,
+        VoiceRunPhase.FAILED,
+        VoiceRunPhase.COMMITTED,
+    ],
+)
+async def test_discard_rejects_a_run_that_is_not_awaiting_review(
+    assign_client, run_repository, phase
+):
+    await run_repository.create_run(
+        make_run(phase, voice_assignments={"SPEAKER_00": "voice1"})
+    )
+
+    response = assign_client.post("/api/voice/runs/run1/discard")
+
+    assert response.status_code == 409
+    stored = await run_repository.get_run("run1")
+    assert stored.voice_assignments == {"SPEAKER_00": "voice1"}
+
+
+def test_discard_reports_404_for_an_unknown_run(assign_client):
+    response = assign_client.post("/api/voice/runs/nope/discard")
+
+    assert response.status_code == 404

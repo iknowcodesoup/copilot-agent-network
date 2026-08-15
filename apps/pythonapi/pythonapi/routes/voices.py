@@ -8,7 +8,7 @@ in Story 3.2/3.3.
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from pythonapi.dependencies import (
     get_required_voice_contribution_repository,
@@ -58,6 +58,22 @@ async def create_voice(
     )
     await repository.create_voice(voice)
     return VoiceResponse(id=voice.id, phase=voice.phase)
+
+
+@router.get("", response_model=list[Voice])
+async def search_voices(
+    query: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=50),
+    repository: VoiceRepository = Depends(get_required_voice_repository),
+):
+    """List or search voices by name, for the assign-speaker combobox
+    (Story 3.5).
+
+    An empty query matches every voice, same as search_videos's contract
+    elsewhere in this service - the combobox opens with an empty query and
+    shows something instead of nothing.
+    """
+    return await repository.search_voices(query, limit)
 
 
 @router.get("/{voice_id}", response_model=Voice)
