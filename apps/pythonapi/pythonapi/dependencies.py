@@ -26,6 +26,7 @@ from pythonapi.repositories.orders import OrderRepository
 from pythonapi.repositories.pii_vault import PiiVaultRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
 from pythonapi.repositories.voice_runs import VoiceRunRepository
+from pythonapi.repositories.voices import VoiceRepository
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
 
@@ -94,6 +95,10 @@ def get_required_voice_factory_gateway(request: Request) -> VoiceFactoryGateway:
 
 def get_required_voice_run_repository(request: Request) -> VoiceRunRepository:
     return request.app.state.voice_run_repository
+
+
+def get_required_voice_repository(request: Request) -> VoiceRepository:
+    return request.app.state.voice_repository
 
 
 def get_voice_tool_registry(request: Request) -> VoiceToolRegistry | None:

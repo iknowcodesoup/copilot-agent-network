@@ -105,7 +105,6 @@ class VoiceRunRow(Base):
     commit_stage_index: Mapped[int] = mapped_column(default=0)
     clip_count: Mapped[int] = mapped_column(default=0)
     approved_count: Mapped[int] = mapped_column(default=0)
-    checkpoint_path: Mapped[str | None]
     # last training progress the factory reported over its webhook
     current_epoch: Mapped[int | None]
     current_loss: Mapped[float | None]
@@ -122,5 +121,28 @@ class VoiceRunRow(Base):
     # an instance that dies never strands a run. No separate lock service.
     leased_until: Mapped[datetime | None]
     lease_owner: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class VoiceRow(Base):
+    """One durable voice: the trained-model identity a run's clips
+    contribute to (Story 3.1 introduces the entity only - no contribution
+    link exists until Story 3.2).
+
+    `phase` tracks training progress and is independent of any one
+    VoiceRunRow's `phase`, which tracks a single video's ingest.
+    """
+
+    __tablename__ = "voices"
+    __table_args__ = (
+        Index("idx_voices_phase", "phase"),
+        Index("idx_voices_name", "name", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    phase: Mapped[str]
+    checkpoint_path: Mapped[str | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())

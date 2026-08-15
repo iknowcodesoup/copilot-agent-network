@@ -64,6 +64,10 @@ from pythonapi.repositories.voice_runs import (
     InMemoryVoiceRunRepository,
     PostgresVoiceRunRepository,
 )
+from pythonapi.repositories.voices import (
+    InMemoryVoiceRepository,
+    PostgresVoiceRepository,
+)
 from pythonapi.routes import (
     agent,
     documents,
@@ -72,6 +76,7 @@ from pythonapi.routes import (
     orders,
     search,
     voice,
+    voices,
 )
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
@@ -219,6 +224,13 @@ async def lifespan(app: FastAPI):
         if app.state.postgres_engine is not None
         else InMemoryVoiceRunRepository()
     )
+    # Wired unconditionally on postgres_engine, not on voice_factory_gateway:
+    # creating a voice must work even without the factory configured.
+    app.state.voice_repository = (
+        PostgresVoiceRepository(app.state.postgres_engine)
+        if app.state.postgres_engine is not None
+        else InMemoryVoiceRepository()
+    )
     # Fan-out for voice run changes. Redis is optional here as everywhere: with
     # it, a change made by any API instance reaches every browser; without it,
     # the pipeline still runs and the page falls back to a reload.
@@ -299,5 +311,6 @@ api_router.include_router(search.router)
 api_router.include_router(openai_proxy.router)
 api_router.include_router(agent.router)
 api_router.include_router(voice.router)
+api_router.include_router(voices.router)
 
 app.include_router(api_router)
