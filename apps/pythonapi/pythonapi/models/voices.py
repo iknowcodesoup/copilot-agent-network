@@ -26,6 +26,18 @@ class VoicePhase(StrEnum):
     FAILED = "failed"
 
 
+# Phases the training reconciler leaves alone. AWAITING_COMMIT waits on a
+# contribution or an explicit train call; READY and FAILED are terminal.
+# TRAINING/EXPORTING are the only claimable phases.
+RESTING_PHASES = frozenset(
+    {
+        VoicePhase.AWAITING_COMMIT,
+        VoicePhase.READY,
+        VoicePhase.FAILED,
+    }
+)
+
+
 class VoiceRequest(BaseModel):
     """Create a voice by name."""
 
@@ -67,6 +79,10 @@ class Voice(BaseModel):
     name: str
     phase: VoicePhase
     checkpoint_path: str | None = None
+    # the control API job backing the current phase, if one is running.
+    # Mirrors VoiceRun.voyicer_job_id: durable, so a restart mid-training
+    # resumes polling the same job instead of starting a second one.
+    voyicer_job_id: str | None = None
     contributions: list[VoiceContribution] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

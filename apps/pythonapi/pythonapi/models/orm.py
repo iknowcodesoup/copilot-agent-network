@@ -147,6 +147,13 @@ class VoiceRow(Base):
     name: Mapped[str]
     phase: Mapped[str]
     checkpoint_path: Mapped[str | None]
+    # the control API job backing the current phase, if one is running
+    voyicer_job_id: Mapped[str | None]
+    # Mutual exclusion for multiple API instances, same pattern as
+    # VoiceRunRow above: an instance claims a voice by setting these in one
+    # atomic UPDATE, and the lease expires on its own.
+    leased_until: Mapped[datetime | None]
+    lease_owner: Mapped[str | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
 

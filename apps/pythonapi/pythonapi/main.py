@@ -29,6 +29,7 @@ from pythonapi.core.voice_agent_tools import VoiceToolRegistry
 from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.core.voice_pipeline_graph import build_voice_pipeline_graph
+from pythonapi.core.voice_training_graph import build_voice_training_graph
 from pythonapi.infrastructure.langfuse_client import (
     build_langfuse_client,
     close_langfuse_client,
@@ -84,6 +85,7 @@ from pythonapi.routes import (
 )
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
+from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 logger = logging.getLogger("uvicorn")
 
@@ -262,6 +264,7 @@ async def lifespan(app: FastAPI):
         else None
     )
     app.state.voice_run_reconciler = None
+    app.state.voice_training_reconciler = None
     if app.state.voice_factory_gateway is not None:
         app.state.voice_run_reconciler = VoiceRunReconciler(
             repository=app.state.voice_run_repository,
@@ -273,12 +276,25 @@ async def lifespan(app: FastAPI):
             gateway=app.state.voice_factory_gateway,
         )
         app.state.voice_run_reconciler.start()
+        # Independent of VoiceRunReconciler (FR21): its own graph, its own
+        # lease, no shared node code. commit_run and POST /voices/{id}/train
+        # both wake it directly (Story 3.3).
+        app.state.voice_training_reconciler = VoiceTrainingReconciler(
+            repository=app.state.voice_repository,
+            graph=build_voice_training_graph(app.state.voice_factory_gateway),
+            interval_seconds=settings.VOICE_TRAINING_RECONCILE_INTERVAL_SECONDS,
+            lease_seconds=settings.VOICE_TRAINING_LEASE_SECONDS,
+            gateway=app.state.voice_factory_gateway,
+        )
+        app.state.voice_training_reconciler.start()
 
     try:
         yield
     finally:
         if app.state.voice_run_reconciler is not None:
             await app.state.voice_run_reconciler.shutdown()
+        if app.state.voice_training_reconciler is not None:
+            await app.state.voice_training_reconciler.shutdown()
         if app.state.voice_factory_client is not None:
             await close_voice_factory_client(app.state.voice_factory_client)
         await app.state.worker_pool.shutdown()
