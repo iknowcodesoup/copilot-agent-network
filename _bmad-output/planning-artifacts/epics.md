@@ -40,16 +40,16 @@ FR13: `GET /videos` returns ingested video IDs with diarization status; `GET /vi
 FR14: A commit payload shaped `{video_id: {speaker_label: character}}` can grow multiple named characters' datasets from multiple videos in a single call.
 FR15: Running preprocess after new clips land regenerates the training config; running it again with no new clips is a no-op.
 FR16: The system represents a Voice (id, name, `phase`, `checkpoint_path`) independent of any single video via a `voices` table, exposed via `POST /voices` to create a named Voice and `GET /voices/{id}` to fetch a Voice with its contributions.
-FR17: Run `ingest_phase` and Voice `phase` are tracked separately; a Run reaching `COMMITTED` does not itself change any Voice's phase.
-FR18: `POST /runs/{id}/assign` associates a video's speakers with Voices without changing `ingest_phase`. `POST /runs/{id}/commit` separately creates immutable Voice Contribution records and advances `ingest_phase` to `COMMITTED`.
-FR19: One `voice_contributions` row is created per (voice, run, speaker) triple on commit; rows are never updated in place.
+FR17: Run `ingest_phase` and Voice `phase` remain tracked on separate tables/columns; a Run reaching `COMMITTED` (now the immediate result of assignment) moves its assigned Voice(s) to `TRAINING` in the same operation. `[SUPERSEDED 2026-08-16, see sprint-change-proposal-2026-08-16.md]`
+FR18: `POST /runs/{id}/assign` associates a video's speakers with Voices, creates one immutable Voice Contribution record per (voice, run, speaker) triple, and advances `ingest_phase` to `COMMITTED`, all in one call. `[SUPERSEDED 2026-08-16]` No more separate `/commit` route.
+FR19: One `voice_contributions` row is created per (voice, run, speaker) triple on assignment; rows are never updated in place. `[REWORDED 2026-08-16]` Trigger moved from commit to assign.
 FR20: `POST /voices/{id}/train` triggers training explicitly; training also triggers automatically on a Voice's first contribution.
 FR21: One LangGraph per video handles ingestion; a separate LangGraph per Voice handles training, triggered on contribution commit.
 FR22: The repository layer answers "all contributions for this voice, joined to run/video" and "fetch voice by name," in addition to existing run-centric queries.
 FR23: A tab or nav segment switches between a Videos view and a Voices view; each renders independently.
 FR24: The Videos view lists video title, source URL, speaker count, and diarization status; expanding a row shows its detected speaker clips, each labeled "awaiting assignment" or "assigned to voice X."
 FR25: Speaker naming uses a combobox that searches existing Voices or creates a new one inline.
-FR26: "Assign speakers" opens the combobox without starting training; "Commit assignments" locks assignments in and creates contributions; "Discard" resets a run to `AWAITING_REVIEW`. Multiple videos can be assigned in parallel and committed individually or in batch.
+FR26: Assigning a speaker to a Voice via the combobox commits immediately: it creates the contribution record and, on a Voice's first contribution, triggers training. There is no separate commit or discard step. Multiple videos' speakers can be assigned independently and in any order. `[SUPERSEDED 2026-08-16, see sprint-change-proposal-2026-08-16.md]`
 FR27: The Voices view shows a card per Voice: name, phase, total clip count, model size once `READY`, a contributing-videos count badge opening a popover (video, clip count, assignment date), a phase-conditional "Train now" action, a standing "Retrain" action, a "View clips" modal, and "Download model" once `READY`.
 
 ### NonFunctional Requirements
@@ -92,8 +92,8 @@ FR13: Epic 2 - Videos/speakers queryable independent of character
 FR14: Epic 2 - One commit routes many videos to many characters
 FR15: Epic 2 - Preprocessing only regenerates what changed
 FR16: Epic 3 - Voice is a durable, independent entity
-FR17: Epic 3 - Ingest phase and voice phase tracked independently
-FR18: Epic 3 - Assignment and commit are separate operations
+FR17: Epic 3 - Ingest phase and voice phase tracked separately; commit-on-assign moves the Voice to TRAINING
+FR18: Epic 3 - Assign, contribution-write, and commit happen in one call
 FR19: Epic 3 - Every contribution is an immutable audit record
 FR20: Epic 3 - Training triggered explicitly or automatically
 FR21: Epic 3 - Ingestion and voice training run as separate state machines
@@ -101,7 +101,7 @@ FR22: Epic 3 - Voice-centric queries at the repository layer
 FR23: Epic 3 - Videos and Voices are separate views
 FR24: Epic 3 - Videos view surfaces ingestion state per video
 FR25: Epic 3 - Speaker naming is search-or-create
-FR26: Epic 3 - Assign, commit, discard are distinct actions
+FR26: Epic 3 - Assigning a speaker commits immediately; no separate commit/discard
 FR27: Epic 3 - Voices view surfaces training state per voice
 
 ## Epic List
@@ -120,7 +120,7 @@ An operator can ingest a video once and reuse it for any number of characters, w
 
 ### Epic 3: Multi-Video Voice Building
 
-An operator can build one durable Voice from clips contributed by several videos over time, assigning and committing as separate steps, and manage that Voice from a dedicated view. Delivers UJ-3 end-to-end. Depends on Epic 2 for its gateway contract and filesystem layout — the data model and the UI that surfaces it ship together as one epic for the same reason as Epic 1.
+An operator can build one durable Voice from clips contributed by several videos over time, assigning a speaker commits it immediately, and the operator manages that Voice from a dedicated view. Delivers UJ-3 end-to-end. Depends on Epic 2 for its gateway contract and filesystem layout — the data model and the UI that surfaces it ship together as one epic for the same reason as Epic 1. `[UPDATED 2026-08-16]` Originally "assigning and committing as separate steps" — merged into one step; see `sprint-change-proposal-2026-08-16.md`.
 **FRs covered:** FR16, FR17, FR18, FR19, FR20, FR21, FR22, FR23, FR24, FR25, FR26, FR27
 **NFRs covered:** NFR4
 
@@ -183,7 +183,7 @@ So that repeated preprocessing runs don't waste time.
 
 ## Epic 3: Multi-Video Voice Building
 
-An operator can build one durable Voice from clips contributed by several videos over time, assigning and committing as separate steps, and manage that Voice from a dedicated view.
+An operator can build one durable Voice from clips contributed by several videos over time, with assignment committing immediately, and manage that Voice from a dedicated view. `[UPDATED 2026-08-16]`
 
 ### Story 3.1: Create the Durable Voice Entity
 
@@ -205,27 +205,35 @@ So that I can build one voice's training data from many videos over time.
 **When** the schema change lands
 **Then** `voice_runs` is trimmed to its ingestion-related fields only, with training-related columns moved to `voices`, and no migration tooling is introduced — the table is recreated in development (NFR4)
 
-### Story 3.2: Split Assignment From Commit, With an Audit Trail
+### Story 3.2: Flatten Assignment and Commit Into One Immediate, Audited Action
+
+`[SUPERSEDED 2026-08-16 — see sprint-change-proposal-2026-08-16.md and spec-3-2-flatten-assign-commit.md, status done]` This story replaces the original "Split Assignment From Commit, With an Audit Trail" — the adopted UI design has no assign/review/commit distinction, so the split is reversed by user decision. The `voice_contributions` audit trail and repository-layer queries survive unchanged; only the trigger point (assign, not a separate commit) and the removal of `discard` change.
 
 As an operator,
-I want to assign a video's speakers to voices without committing, and commit separately when I'm ready,
-So that I can hold an assignment before it starts training.
+I want assigning a video's speaker to a voice to commit immediately, with an audit trail preserved,
+So that I don't have to perform a separate commit step for an association I already intend to keep.
 
 **Acceptance Criteria:**
 
 **Given** a video has detected speakers and one or more voices exist (Story 3.1)
 **When** an operator calls `POST /runs/{id}/assign`
-**Then** the speakers are associated with voices, and the run's `ingest_phase` does not change (FR17, FR18)
+**Then** the speakers are associated with voices, one immutable `voice_contributions` row is created per (voice, run, speaker) triple, and `ingest_phase` advances to `COMMITTED` — all in one call (FR17, FR18, FR19)
 
-**Given** an assignment has been made
-**When** an operator calls `POST /runs/{id}/commit`
-**Then** one immutable `voice_contributions` row is created per (voice, run, speaker) triple, and `ingest_phase` advances to `COMMITTED` — the `voice_contributions` table is introduced in this story, alongside `VoiceContributionRepository` (FR18, FR19)
+**Given** all speakers in the request are mapped to `None`
+**When** an operator calls `POST /runs/{id}/assign`
+**Then** no contribution rows are written and the run stays `AWAITING_REVIEW` (400)
+
+**Given** a run is not in `AWAITING_REVIEW` (e.g. already `COMMITTED`)
+**When** an operator calls `POST /runs/{id}/assign` again
+**Then** nothing is persisted (409) — there is no discard/undo action, since there is no draft state to discard once assign commits
 
 **Given** contributions exist for a voice
 **When** the repository is queried
 **Then** it returns all contributions for that voice joined to run/video, and can fetch a voice by name (FR22)
 
 ### Story 3.3: Trigger Training Explicitly or Automatically, Independent of Ingestion
+
+`[REVISED 2026-08-16]` AC1's trigger changed from "the commit that creates [the first contribution]" to "the assign call that creates it," matching Story 3.2's merge. The rest of this story (explicit train call, per-voice LangGraph) is unaffected. Confirmed no separate "first contribution" special-case exists in `voice_training_reconciler.py` — training triggers on every assign that touches a voice, same as it triggered on every commit before.
 
 As an operator,
 I want training to start either automatically on a voice's first contribution or by an explicit call, running independently of video ingestion,
@@ -234,7 +242,7 @@ So that training doesn't block on or get blocked by ingestion state.
 **Acceptance Criteria:**
 
 **Given** a voice receives its first contribution (Story 3.2)
-**When** the commit that creates it completes
+**When** the assign call that creates it completes
 **Then** training triggers automatically (FR20)
 
 **Given** a voice already has contributions
@@ -259,9 +267,11 @@ So that I can focus on ingestion review or voice management without the other cl
 
 ### Story 3.5: Review Ingestion and Assign Speakers in the Videos View
 
+`[REVISED 2026-08-16]` ACs referencing "Commit assignments" and "Discard" buttons are removed — there is no separate commit or discard step. "Assign speakers" is rewritten to describe the single immediate action: picking a voice for a speaker in the combobox commits it right away.
+
 As an operator,
-I want to review a video's detected speakers and assign them to voices by searching or creating, without starting training,
-So that I can prepare an assignment before committing it.
+I want to review a video's detected speakers and assign them to voices by searching or creating, with the assignment committing immediately,
+So that I don't need a separate step to lock in an association I already intend to keep.
 
 **Acceptance Criteria:**
 
@@ -274,24 +284,18 @@ So that I can prepare an assignment before committing it.
 **Then** it searches existing voices or creates a new one inline — no free text (FR25)
 
 **Given** a video's speakers are unassigned
-**When** an operator clicks "Assign speakers"
-**Then** the combobox opens without starting training (FR26)
+**When** an operator picks a voice for a speaker in the combobox
+**Then** one call persists the contribution, advances the run to `COMMITTED`, and starts training on that voice — no separate commit or discard action is shown (FR26)
 
-**Given** assignments have been made
-**When** an operator clicks "Commit assignments"
-**Then** assignments lock in and contributions are created, via Story 3.2's routes (FR26)
-
-**Given** an operator wants to abandon a review
-**When** they click "Discard"
-**Then** the run resets to `AWAITING_REVIEW` (FR26)
-
-**Given** multiple videos have pending assignments
+**Given** multiple videos have pending speakers
 **When** an operator works through them
-**Then** each can be assigned and committed individually or in batch (FR26)
+**Then** each speaker can be assigned independently and in any order — assigning one speaker does not block or require assigning others first (FR26)
 
 **And** the existing `speaker_board` clip audio-quality review/playback flow is preserved unchanged
 
 ### Story 3.6: Manage Voice Training From the Voices View
+
+`[REVISED 2026-08-16]` A voice with any contribution is already training or trained the moment it's assigned, since assign-implies-train now — so the phase-conditional "Train now" action (gated on the old `AWAITING_COMMIT` two-phase model) collapses. Only the standing "Retrain" action remains, matching the adopted design's `voice_card.tsx`.
 
 As an operator,
 I want to see each voice's training state and manage it — view clips, retrain, download — from one card,
@@ -307,9 +311,9 @@ So that I don't have to piece its status together from the ingestion side.
 **When** an operator views its card
 **Then** a contributing-videos count badge opens a popover listing each video, its clip count, and assignment date (FR27)
 
-**Given** a voice has `AWAITING_COMMIT` contributions
+**Given** a voice exists in any phase
 **When** an operator views its card
-**Then** a "Train now" action is shown; a standing "Retrain" action is always available regardless of that condition (FR27)
+**Then** a standing "Retrain" action is always available, independently re-triggering `POST /voices/{id}/train` (FR27, FR20)
 
 **Given** a voice has any contributions
 **When** an operator clicks "View clips"

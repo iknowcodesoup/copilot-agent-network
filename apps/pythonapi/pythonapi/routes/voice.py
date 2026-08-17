@@ -33,7 +33,6 @@ from pythonapi.dependencies import (
     get_required_voice_repository,
     get_required_voice_run_reconciler,
     get_required_voice_run_repository,
-    get_voice_training_reconciler,
 )
 from pythonapi.models.voice import (
     ClipDecisionRequest,
@@ -57,15 +56,12 @@ from pythonapi.models.voice import (
 from pythonapi.models.voices import (
     RunAssignRequest,
     RunAssignResponse,
-    RunCommitResponse,
     VoiceContribution,
-    VoicePhase,
 )
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
 from pythonapi.repositories.voices import VoiceRepository
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
-from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 router = APIRouter(prefix="/voice", tags=["Voice"])
 
@@ -366,18 +362,30 @@ async def _require_awaiting_review(
     return run
 
 
-@router.post("/runs/{run_id}/assign", response_model=RunAssignResponse)
+@router.post(
+    "/runs/{run_id}/assign",
+    response_model=RunAssignResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def assign_run(
     run_id: str,
     assign_request: RunAssignRequest,
     repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
     voice_repository: VoiceRepository = Depends(get_required_voice_repository),
+    contribution_repository: VoiceContributionRepository = Depends(
+        get_required_voice_contribution_repository
+    ),
 ):
-    """Store a speaker -> Voice mapping on the run, without starting anything.
+    """Map a run's speaker labels to Voices.
 
-    DB-only: no factory call, no phase change. A full replace of
-    run.voice_assignments, same as approve_run's speaker_map write, so a
-    reviewer can call this more than once before committing (Story 3.2).
+    Only assignment: it stores the mapping and writes one immutable
+    voice_contributions row per assigned speaker. It does not commit the run
+    or start training - those are POST .../commit and POST /voices/{id}/train,
+    called separately, so relabeling a clip's speaker never has a side effect
+    beyond recording it.
+
+    DB-only: no factory call, and it must keep working without a voice
+    factory configured - the contribution rows are the durable record.
     """
     run = await _require_awaiting_review(repository, run_id)
 
@@ -389,69 +397,17 @@ async def assign_run(
                 status.HTTP_404_NOT_FOUND, f"Voice {voice_id!r} not found"
             )
 
-    run.voice_assignments = assign_request.assignments
-    await repository.update_run(run)
-    return RunAssignResponse(run_id=run.id, voice_assignments=run.voice_assignments)
-
-
-@router.post("/runs/{run_id}/discard", response_model=VoiceRun)
-async def discard_run(
-    run_id: str,
-    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
-):
-    """Abandon a review and clear whatever was assigned so far.
-
-    Only AWAITING_REVIEW has anything to discard - there is no assignment to
-    clear once a run has moved on, so any other phase is rejected the same
-    way assign_run and commit_run reject it, just for the opposite reason:
-    those two require AWAITING_REVIEW to make forward progress, this one
-    requires it because it is the only phase discard makes sense in.
-    """
-    run = await _require_awaiting_review(repository, run_id)
-    run.voice_assignments = {}
-    await repository.update_run(run)
-    return run
-
-
-@router.post(
-    "/runs/{run_id}/commit",
-    response_model=RunCommitResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def commit_run(
-    run_id: str,
-    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
-    contribution_repository: VoiceContributionRepository = Depends(
-        get_required_voice_contribution_repository
-    ),
-    voice_repository: VoiceRepository = Depends(get_required_voice_repository),
-    training_reconciler: VoiceTrainingReconciler | None = Depends(
-        get_voice_training_reconciler
-    ),
-):
-    """Turn the run's stored assignment into immutable voice_contributions
-    rows and advance the run to the terminal COMMITTED phase (Story 3.2).
-
-    DB-only, like assign_run: no factory call, and it must keep working
-    without a voice factory configured, same as assign_run. Each committed
-    voice moves out of AWAITING_COMMIT into TRAINING here - the same shape
-    as approve_run setting run.phase = COMMITTING before its reconciler picks
-    the run up - and is then woken on the training reconciler (Story 3.3),
-    when one exists, so training starts without waiting on the interval
-    backstop. Without a factory there is nothing to wake, and the phase
-    change plus the contribution row are the durable record either way.
-    """
-    run = await _require_awaiting_review(repository, run_id)
-
     assigned_speakers = {
         speaker_label: voice_id
-        for speaker_label, voice_id in run.voice_assignments.items()
+        for speaker_label, voice_id in assign_request.assignments.items()
         if voice_id is not None
     }
     if not assigned_speakers:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Assign at least one speaker before commit"
+            status.HTTP_400_BAD_REQUEST, "Assign at least one speaker"
         )
+
+    run.voice_assignments = assign_request.assignments
 
     now = datetime.now(UTC)
     contributions = [
@@ -469,20 +425,42 @@ async def commit_run(
     for contribution in contributions:
         await contribution_repository.create_contribution(contribution)
 
-    # One phase flip and one wake per distinct voice, not per contribution:
-    # several speakers in this run can map to the same voice.
-    for voice_id in {contribution.voice_id for contribution in contributions}:
-        voice = await voice_repository.get_voice(voice_id)
-        if voice is not None:
-            voice.phase = VoicePhase.TRAINING
-            voice.voyicer_job_id = None
-            await voice_repository.update_voice(voice)
-        if training_reconciler is not None:
-            training_reconciler.wake(voice_id)
+    await repository.update_run(run)
+    return RunAssignResponse(
+        run_id=run.id,
+        voice_assignments=run.voice_assignments,
+        contributions=contributions,
+    )
+
+
+@router.post(
+    "/runs/{run_id}/commit",
+    response_model=VoiceRun,
+    status_code=status.HTTP_200_OK,
+)
+async def commit_run(
+    run_id: str,
+    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
+):
+    """End review once every speaker the operator cares about is assigned.
+
+    Separate from assign_run on purpose: assigning a speaker must not finish
+    the run by itself. This is the one call that does, and it does only that
+    - no voice phase change, no training. Training starts when the operator
+    calls POST /voices/{id}/train, per voice, from the training panel.
+    """
+    run = await _require_awaiting_review(repository, run_id)
+    if not any(
+        voice_id is not None for voice_id in run.voice_assignments.values()
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Assign at least one speaker before committing",
+        )
 
     run.phase = VoiceRunPhase.COMMITTED
     await repository.update_run(run)
-    return RunCommitResponse(contributions=contributions)
+    return run
 
 
 @router.get("/runs/{run_id}/clips/{clip_id}/audio")

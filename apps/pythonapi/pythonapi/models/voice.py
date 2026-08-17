@@ -27,9 +27,9 @@ class VoiceRunPhase(StrEnum):
     EXPORTING = "exporting"
     READY = "ready"
     FAILED = "failed"
-    # Story 3.2: a run whose speaker->voice assignment has been turned into
+    # A run whose speaker->voice assignment has been turned into
     # voice_contributions rows. Terminal, like READY/FAILED, but reached
-    # through routes/voice.py's commit_run rather than the reconciler.
+    # through routes/voice.py's assign_run rather than the reconciler.
     COMMITTED = "committed"
 
 
@@ -117,9 +117,10 @@ class VoiceRun(BaseModel):
     num_speakers: int | None = None
     # speaker label -> character name. None discards that speaker's clips.
     speaker_map: dict[str, str | None] = Field(default_factory=dict)
-    # speaker label -> Voice id (Story 3.2). Distinct from speaker_map: this is
-    # DB-only and Voice-ID-scoped, never pushed to the voice factory host. Set
-    # by POST .../assign, consumed by POST .../commit.
+    # speaker label -> Voice id. Distinct from speaker_map: this is DB-only and
+    # Voice-ID-scoped, never pushed to the voice factory host. Set by
+    # POST .../assign, which stores this mapping and commits it - contribution
+    # rows and phase change - in the same call.
     voice_assignments: dict[str, str | None] = Field(default_factory=dict)
     voyicer_job_id: str | None = None
     # which of DOWNLOADING's ordered ingest steps is in flight
