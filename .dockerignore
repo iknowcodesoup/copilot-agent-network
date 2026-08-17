@@ -345,6 +345,12 @@ artifacts
 checkpoints
 **/checkpoints
 
+# Exception: pythonapi/models is a source package (Pydantic schemas + ORM),
+# not an ML weights directory. The broad `**/models` rule above would
+# otherwise drop it from the Docker build context.
+!apps/pythonapi/pythonapi/models
+!apps/pythonapi/pythonapi/models/**
+
 
 # ============================================================
 # Misc generated files

@@ -142,7 +142,7 @@ def get_required_voice_training_reconciler(request: Request) -> VoiceTrainingRec
 
 
 def get_voice_training_reconciler(request: Request) -> VoiceTrainingReconciler | None:
-    """None without a voice factory. commit_run is DB-only and must keep
+    """None without a voice factory. assign_run is DB-only and must keep
     working in that case - it just has nothing to wake."""
     return request.app.state.voice_training_reconciler
 

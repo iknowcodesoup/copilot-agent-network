@@ -1,9 +1,11 @@
-"""Tests for Story 3.2: split assignment from commit, with an audit trail.
+"""Tests for the assign and commit actions, kept separate on purpose.
 
-Covers every row of the spec's I/O & Edge-Case Matrix:
-- assign happy path / unknown voice / wrong phase
-- commit happy path / nothing assigned / wrong phase
-- GET /voices/{id} returns real contributions after a commit
+Assigning a speaker to a Voice only writes the contribution row - it does not
+advance the run or touch the voice's training phase. Committing a run is a
+separate call. Covers the happy path (single and multiple speakers/voices),
+empty/all-null assignment, unknown voice, wrong phase, unknown run for
+assign; the equivalent matrix for commit; plus GET /voices/{id} returning
+real contributions after an assign with no commit.
 """
 
 from datetime import UTC, datetime
@@ -79,61 +81,131 @@ def assign_client(client, run_repository, voice_repository, contribution_reposit
     return client
 
 
-# --- assign ------------------------------------------------------------
+# --- happy path -------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_assign_stores_the_mapping_without_touching_phase(
-    assign_client, run_repository, voice_repository
+async def test_assign_single_speaker_writes_one_contribution_and_nothing_else(
+    assign_client, run_repository, voice_repository, contribution_repository
 ):
     await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
     await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
-    await voice_repository.create_voice(make_voice(id="voice2", name="Chakotay"))
 
     response = assign_client.post(
-        "/api/voice/runs/run1/assign",
-        json={"assignments": {"SPEAKER_00": "voice1", "SPEAKER_01": "voice2"}},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "run_id": "run1",
-        "voice_assignments": {"SPEAKER_00": "voice1", "SPEAKER_01": "voice2"},
-    }
-    stored = await run_repository.get_run("run1")
-    assert stored.voice_assignments == {
-        "SPEAKER_00": "voice1",
-        "SPEAKER_01": "voice2",
-    }
-    assert stored.phase is VoiceRunPhase.AWAITING_REVIEW
-
-
-@pytest.mark.asyncio
-async def test_assign_can_be_called_more_than_once_as_a_full_replace(
-    assign_client, run_repository, voice_repository
-):
-    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
-    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
-    await voice_repository.create_voice(make_voice(id="voice2", name="Chakotay"))
-    assign_client.post(
         "/api/voice/runs/run1/assign",
         json={"assignments": {"SPEAKER_00": "voice1"}},
     )
 
+    assert response.status_code == 201
+    body = response.json()
+    assert body["run_id"] == "run1"
+    assert body["voice_assignments"] == {"SPEAKER_00": "voice1"}
+    assert len(body["contributions"]) == 1
+    contribution = body["contributions"][0]
+    assert contribution["run_id"] == "run1"
+    assert contribution["voice_id"] == "voice1"
+    assert contribution["speaker_label"] == "SPEAKER_00"
+    assert contribution["video_id"] == "vid_abc123"
+    assert contribution["video_title"] == "Janeway speaks"
+
+    stored_run = await run_repository.get_run("run1")
+    assert stored_run.phase is VoiceRunPhase.AWAITING_REVIEW
+    assert stored_run.voice_assignments == {"SPEAKER_00": "voice1"}
+
+    stored_voice = await voice_repository.get_voice("voice1")
+    assert stored_voice.phase is VoicePhase.AWAITING_COMMIT
+
+    voice1_contributions = await contribution_repository.list_contributions_for_voice(
+        "voice1"
+    )
+    assert [row.speaker_label for row in voice1_contributions] == ["SPEAKER_00"]
+
+
+@pytest.mark.asyncio
+async def test_assign_multiple_speakers_multiple_voices_leaves_voices_untouched(
+    assign_client, run_repository, voice_repository, contribution_repository
+):
+    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
+    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
+    await voice_repository.create_voice(make_voice(id="voice2", name="Chakotay"))
+
     response = assign_client.post(
         "/api/voice/runs/run1/assign",
-        json={"assignments": {"SPEAKER_01": "voice2"}},
+        json={
+            "assignments": {
+                "SPEAKER_00": "voice1",
+                "SPEAKER_01": "voice2",
+                "SPEAKER_02": None,
+            }
+        },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
+    body = response.json()
+    assert len(body["contributions"]) == 2
+    speaker_labels = {row["speaker_label"] for row in body["contributions"]}
+    assert speaker_labels == {"SPEAKER_00", "SPEAKER_01"}
+
+    stored_run = await run_repository.get_run("run1")
+    assert stored_run.phase is VoiceRunPhase.AWAITING_REVIEW
+
+    voice1 = await voice_repository.get_voice("voice1")
+    voice2 = await voice_repository.get_voice("voice2")
+    assert voice1.phase is VoicePhase.AWAITING_COMMIT
+    assert voice2.phase is VoicePhase.AWAITING_COMMIT
+
+    voice1_contributions = await contribution_repository.list_contributions_for_voice(
+        "voice1"
+    )
+    voice2_contributions = await contribution_repository.list_contributions_for_voice(
+        "voice2"
+    )
+    assert [row.speaker_label for row in voice1_contributions] == ["SPEAKER_00"]
+    assert [row.speaker_label for row in voice2_contributions] == ["SPEAKER_01"]
+
+
+# --- edge cases ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_assign_rejects_an_empty_assignment_and_stores_nothing(
+    assign_client, run_repository, contribution_repository
+):
+    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
+
+    response = assign_client.post(
+        "/api/voice/runs/run1/assign",
+        json={"assignments": {}},
+    )
+
+    assert response.status_code == 400
     stored = await run_repository.get_run("run1")
-    # full replace, not a merge: SPEAKER_00 from the first call is gone
-    assert stored.voice_assignments == {"SPEAKER_01": "voice2"}
+    assert stored.phase is VoiceRunPhase.AWAITING_REVIEW
+    assert stored.voice_assignments == {}
+    assert await contribution_repository.list_contributions_for_voice("voice1") == []
+
+
+@pytest.mark.asyncio
+async def test_assign_rejects_an_all_null_assignment_and_stores_nothing(
+    assign_client, run_repository, contribution_repository
+):
+    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
+
+    response = assign_client.post(
+        "/api/voice/runs/run1/assign",
+        json={"assignments": {"SPEAKER_00": None}},
+    )
+
+    assert response.status_code == 400
+    stored = await run_repository.get_run("run1")
+    assert stored.phase is VoiceRunPhase.AWAITING_REVIEW
+    assert stored.voice_assignments == {}
+    assert await contribution_repository.list_contributions_for_voice("voice1") == []
 
 
 @pytest.mark.asyncio
 async def test_assign_rejects_an_unknown_voice_id_and_stores_nothing(
-    assign_client, run_repository, voice_repository
+    assign_client, run_repository, voice_repository, contribution_repository
 ):
     await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
     await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
@@ -145,24 +217,9 @@ async def test_assign_rejects_an_unknown_voice_id_and_stores_nothing(
 
     assert response.status_code == 404
     stored = await run_repository.get_run("run1")
+    assert stored.phase is VoiceRunPhase.AWAITING_REVIEW
     assert stored.voice_assignments == {}
-
-
-@pytest.mark.asyncio
-async def test_assign_allows_a_null_voice_id_to_discard_a_speaker(
-    assign_client, run_repository, voice_repository
-):
-    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
-    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
-
-    response = assign_client.post(
-        "/api/voice/runs/run1/assign",
-        json={"assignments": {"SPEAKER_00": "voice1", "SPEAKER_01": None}},
-    )
-
-    assert response.status_code == 200
-    stored = await run_repository.get_run("run1")
-    assert stored.voice_assignments == {"SPEAKER_00": "voice1", "SPEAKER_01": None}
+    assert await contribution_repository.list_contributions_for_voice("voice1") == []
 
 
 @pytest.mark.asyncio
@@ -179,7 +236,7 @@ async def test_assign_allows_a_null_voice_id_to_discard_a_speaker(
     ],
 )
 async def test_assign_rejects_a_run_that_is_not_awaiting_review(
-    assign_client, run_repository, phase
+    assign_client, run_repository, contribution_repository, phase
 ):
     await run_repository.create_run(make_run(phase))
 
@@ -189,6 +246,7 @@ async def test_assign_rejects_a_run_that_is_not_awaiting_review(
     )
 
     assert response.status_code == 409
+    assert await contribution_repository.list_contributions_for_voice("voice1") == []
 
 
 def test_assign_reports_404_for_an_unknown_run(assign_client):
@@ -200,51 +258,36 @@ def test_assign_reports_404_for_an_unknown_run(assign_client):
     assert response.status_code == 404
 
 
-# --- commit --------------------------------------------------------------
+# --- commit -----------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_commit_creates_one_contribution_per_assigned_speaker_and_advances_phase(
-    assign_client, run_repository, voice_repository, contribution_repository
+async def test_commit_advances_an_assigned_run_to_committed(
+    assign_client, run_repository, voice_repository
 ):
-    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
-    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
-    await voice_repository.create_voice(make_voice(id="voice2", name="Chakotay"))
-    assign_client.post(
-        "/api/voice/runs/run1/assign",
-        json={
-            "assignments": {
-                "SPEAKER_00": "voice1",
-                "SPEAKER_01": "voice2",
-                "SPEAKER_02": None,
-            }
-        },
+    await run_repository.create_run(
+        make_run(
+            VoiceRunPhase.AWAITING_REVIEW,
+            voice_assignments={"SPEAKER_00": "voice1"},
+        )
     )
+    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
 
     response = assign_client.post("/api/voice/runs/run1/commit")
 
-    assert response.status_code == 201
-    body = response.json()
-    assert len(body["contributions"]) == 2
-    speaker_labels = {row["speaker_label"] for row in body["contributions"]}
-    assert speaker_labels == {"SPEAKER_00", "SPEAKER_01"}
-    for row in body["contributions"]:
-        assert row["run_id"] == "run1"
-        assert row["video_id"] == "vid_abc123"
-        assert row["video_title"] == "Janeway speaks"
+    assert response.status_code == 200
+    assert response.json()["phase"] == "committed"
 
-    stored = await run_repository.get_run("run1")
-    assert stored.phase is VoiceRunPhase.COMMITTED
+    stored_run = await run_repository.get_run("run1")
+    assert stored_run.phase is VoiceRunPhase.COMMITTED
 
-    voice1_contributions = await contribution_repository.list_contributions_for_voice(
-        "voice1"
-    )
-    assert [row.speaker_label for row in voice1_contributions] == ["SPEAKER_00"]
+    stored_voice = await voice_repository.get_voice("voice1")
+    assert stored_voice.phase is VoicePhase.AWAITING_COMMIT
 
 
 @pytest.mark.asyncio
-async def test_commit_rejects_an_empty_assignment_and_creates_no_rows(
-    assign_client, run_repository, contribution_repository
+async def test_commit_rejects_a_run_with_no_assignments(
+    assign_client, run_repository
 ):
     await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
 
@@ -253,14 +296,12 @@ async def test_commit_rejects_an_empty_assignment_and_creates_no_rows(
     assert response.status_code == 400
     stored = await run_repository.get_run("run1")
     assert stored.phase is VoiceRunPhase.AWAITING_REVIEW
-    assert await contribution_repository.list_contributions_for_voice("voice1") == []
 
 
 @pytest.mark.asyncio
-async def test_commit_rejects_an_assignment_of_only_discarded_speakers(
+async def test_commit_rejects_a_run_with_only_null_assignments(
     assign_client, run_repository
 ):
-    """Every value None: same as nothing assigned."""
     await run_repository.create_run(
         make_run(VoiceRunPhase.AWAITING_REVIEW, voice_assignments={"SPEAKER_00": None})
     )
@@ -301,11 +342,11 @@ def test_commit_reports_404_for_an_unknown_run(assign_client):
     assert response.status_code == 404
 
 
-# --- fetch voice after commit --------------------------------------------
+# --- fetch voice after assign ---------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_get_voice_lists_real_contributions_after_a_commit(
+async def test_get_voice_lists_real_contributions_after_an_assign_with_no_commit(
     assign_client, run_repository, voice_repository
 ):
     await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
@@ -314,7 +355,6 @@ async def test_get_voice_lists_real_contributions_after_a_commit(
         "/api/voice/runs/run1/assign",
         json={"assignments": {"SPEAKER_00": "voice1"}},
     )
-    assign_client.post("/api/voice/runs/run1/commit")
 
     response = assign_client.get("/api/voices/voice1")
 
@@ -331,7 +371,7 @@ async def test_get_voice_lists_real_contributions_after_a_commit(
 
 
 @pytest.mark.asyncio
-async def test_get_voice_still_returns_empty_contributions_before_any_commit(
+async def test_get_voice_still_returns_empty_contributions_before_any_assign(
     assign_client, voice_repository
 ):
     await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
@@ -340,62 +380,3 @@ async def test_get_voice_still_returns_empty_contributions_before_any_commit(
 
     assert response.status_code == 200
     assert response.json()["contributions"] == []
-
-
-# --- discard ---------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_discard_clears_assignments_and_stays_in_awaiting_review(
-    assign_client, run_repository, voice_repository
-):
-    await run_repository.create_run(
-        make_run(
-            VoiceRunPhase.AWAITING_REVIEW,
-            voice_assignments={"SPEAKER_00": "voice1"},
-        )
-    )
-    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
-
-    response = assign_client.post("/api/voice/runs/run1/discard")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["phase"] == "awaiting_review"
-    assert body["voice_assignments"] == {}
-    stored = await run_repository.get_run("run1")
-    assert stored.phase is VoiceRunPhase.AWAITING_REVIEW
-    assert stored.voice_assignments == {}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "phase",
-    [
-        VoiceRunPhase.DOWNLOADING,
-        VoiceRunPhase.DIARIZING,
-        VoiceRunPhase.COMMITTING,
-        VoiceRunPhase.TRAINING,
-        VoiceRunPhase.READY,
-        VoiceRunPhase.FAILED,
-        VoiceRunPhase.COMMITTED,
-    ],
-)
-async def test_discard_rejects_a_run_that_is_not_awaiting_review(
-    assign_client, run_repository, phase
-):
-    await run_repository.create_run(
-        make_run(phase, voice_assignments={"SPEAKER_00": "voice1"})
-    )
-
-    response = assign_client.post("/api/voice/runs/run1/discard")
-
-    assert response.status_code == 409
-    stored = await run_repository.get_run("run1")
-    assert stored.voice_assignments == {"SPEAKER_00": "voice1"}
-
-
-def test_discard_reports_404_for_an_unknown_run(assign_client):
-    response = assign_client.post("/api/voice/runs/nope/discard")
-
-    assert response.status_code == 404

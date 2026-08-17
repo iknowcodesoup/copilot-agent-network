@@ -1,18 +1,48 @@
 # copilot_agent_network
 
-> ## ⚠️ Work in progress
->
-> This project is not finished. Treat every part of it as unstable.
-> Interfaces, routes, and configuration keys can change without notice.
->
-> The CopilotKit and AG-UI stage is the largest open item. The front end and
-> the agent endpoint talk to each other, but the full chat experience is not
-> complete. This stage will take a long time to finish. Until it is done,
-> expect gaps in the chat UI, in tool calls, and in streamed agent state.
-
 An Nx monorepo. A Next.js chat front end talks to a Python FastAPI agent
 service over the AG-UI protocol. The service runs a RAG pipeline over Qdrant
-and Postgres. Every model call goes through LiteLLM.
+and Postgres. Every model call goes through LiteLLM. A second pipeline turns
+a YouTube video into a fine-tuned voice model, with a human-in-the-loop
+review dashboard for the clip data.
+
+> **Status:** actively evolving. The CopilotKit and AG-UI chat surface is
+> the largest open item — the front end and the agent endpoint talk to each
+> other, but the full streamed chat experience is still being built out.
+
+![Voice Studio dashboard — human-in-the-loop review of diarized clips, with a copilot chat panel and a live pipeline log](assets/wip_ui.png)
+
+_The Voice Studio dashboard: a video queues for processing, clips come back
+diarized and flagged for review, and an embedded copilot can drive the whole
+workflow from natural language._
+
+---
+
+## Highlights
+
+- **Protocol-first agent boundary.** The only contract between the front end
+  and the agent service is one FastAPI route
+  ([`routes/agent.py`](apps/pythonapi/pythonapi/routes/agent.py)) that speaks
+  AG-UI over server-sent events — no bespoke RPC layer, no shared runtime.
+- **Webhook-driven pipeline, not polling.** The voice-model pipeline runs on
+  a separate GPU host and reports progress over a webhook. A
+  [`VoiceRunReconciler`](apps/pythonapi/pythonapi/workers/voice_run_reconciler.py)
+  wakes on that signal and is also the single writer of run state, so a lost
+  webhook only costs latency — the reconcile timer is the backstop.
+- **Durable state without a checkpointer.** Training can run for days and a
+  human review can sit longer, so the LangGraph pipeline keeps no in-memory
+  checkpoint. The `voice_runs.phase` column in Postgres is the state
+  machine, and it survives a restart.
+- **Lease-based concurrency.** Multiple API instances can run at once.
+  `voice_runs.leased_until` and `lease_owner` provide mutual exclusion
+  through one atomic UPDATE, and the lease expires on its own, so a dead
+  instance never strands a run.
+- **Idempotent event replay.** Every server-sent event carries the full
+  run state, never a diff. Applying one twice lands on the same result,
+  which is what makes reconnect-and-replay cheap on the dashboard.
+- **Config that can't drift.** Every setting has a real default in one
+  Pydantic `Settings` class. The service boots with zero environment files —
+  that is what the test suite and local dev both run on.
 
 ---
 

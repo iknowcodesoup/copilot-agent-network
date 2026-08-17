@@ -1,8 +1,10 @@
-"""Tests for Story 3.3: trigger training explicitly or automatically,
-independent of ingestion.
+"""Tests for Story 3.3: trigger training explicitly, independent of
+ingestion and independent of assignment.
 
 Covers every row of the spec's I/O & Edge-Case Matrix:
-- commit_run wakes the training reconciler for the committed voice
+- assign_run never touches voice phase or wakes the reconciler - assigning a
+  speaker is a separate action from starting training (assign and commit
+  were unflattened; see test_voice_assign_commit.py for assign/commit)
 - POST /voices/{id}/train happy path, unknown voice, already-training
 - claim race: two claims of the same voice, only one wins
 - graph-level: the training node calls gateway.start_job with STAGE_TRAIN
@@ -136,56 +138,38 @@ def train_client(
     return client
 
 
-# --- auto-trigger: commit_run wakes the training reconciler ---------------
+# --- assign_run stays a pure mapping: no phase change, no wake ------------
 
 
 @pytest.mark.asyncio
-async def test_commit_run_wakes_training_reconciler_for_the_committed_voice(
+async def test_assign_run_does_not_touch_voice_phase_or_wake_the_reconciler(
     train_client, run_repository, voice_repository, training_reconciler
 ):
     await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
     await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
-    train_client.post(
-        "/api/voice/runs/run1/assign",
-        json={"assignments": {"SPEAKER_00": "voice1"}},
-    )
 
-    response = train_client.post("/api/voice/runs/run1/commit")
-
-    assert response.status_code == 201
-    # commit_run itself moves the voice out of AWAITING_COMMIT into TRAINING
-    # and wakes the reconciler. Draining that wake (as the loop would) then
-    # starts the actual training job.
-    stored = await voice_repository.get_voice("voice1")
-    assert stored.phase is VoicePhase.TRAINING
-    assert "voice1" in training_reconciler._pending_wakes
-    advanced = await training_reconciler.reconcile_voice("voice1")
-    assert advanced is True
-
-
-@pytest.mark.asyncio
-async def test_commit_run_wakes_only_committed_voices_not_discarded_speakers(
-    train_client, run_repository, voice_repository, training_reconciler
-):
-    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
-    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
-    train_client.post(
+    response = train_client.post(
         "/api/voice/runs/run1/assign",
         json={"assignments": {"SPEAKER_00": "voice1", "SPEAKER_01": None}},
     )
 
-    train_client.post("/api/voice/runs/run1/commit")
-
-    assert training_reconciler._pending_wakes == {"voice1"}
+    assert response.status_code == 201
+    # Assigning a speaker is its own action now (Story 3.2's assign+commit
+    # was unflattened): it must not move the voice out of AWAITING_COMMIT or
+    # wake the reconciler. Training only starts through POST
+    # /voices/{id}/train, tested below.
+    stored = await voice_repository.get_voice("voice1")
+    assert stored.phase is VoicePhase.AWAITING_COMMIT
+    assert training_reconciler._pending_wakes == set()
 
 
 @pytest.mark.asyncio
-async def test_commit_run_still_works_without_a_voice_factory_configured(
+async def test_assign_run_still_works_without_a_voice_factory_configured(
     client, run_repository, voice_repository, contribution_repository
 ):
-    """commit_run is DB-only (Story 3.2) and must keep working even when no
-    voice factory is configured - same as assign_run. It has nothing to
-    wake in that case, and the contribution row is the durable record.
+    """assign_run is DB-only and must keep working even when no voice
+    factory is configured. It has nothing to wake in that case, and the
+    contribution row is the durable record.
     """
     app.dependency_overrides[get_required_voice_run_repository] = lambda: run_repository
     app.dependency_overrides[get_required_voice_repository] = lambda: voice_repository
@@ -197,12 +181,11 @@ async def test_commit_run_still_works_without_a_voice_factory_configured(
     # VOICE_FACTORY_URL set in the test environment.
     await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
     await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
-    client.post(
+
+    response = client.post(
         "/api/voice/runs/run1/assign",
         json={"assignments": {"SPEAKER_00": "voice1"}},
     )
-
-    response = client.post("/api/voice/runs/run1/commit")
 
     assert response.status_code == 201
 

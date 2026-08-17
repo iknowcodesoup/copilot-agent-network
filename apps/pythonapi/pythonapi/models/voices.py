@@ -71,7 +71,7 @@ class VoiceContribution(BaseModel):
 class Voice(BaseModel):
     """One voice's complete state.
 
-    contributions is always empty before Story 3.2's commit step creates a
+    contributions is always empty until an assign call creates a
     contribution row for this voice.
     """
 
@@ -104,25 +104,23 @@ class VoiceResponse(BaseModel):
 
 
 class RunAssignRequest(BaseModel):
-    """Map a run's speaker labels to Voice ids (Story 3.2).
+    """Map a run's speaker labels to Voice ids and commit immediately.
 
-    A full replace of the run's stored assignment, same as
-    SpeakerAssignmentRequest is for speaker_map - so it can be called more
-    than once before commit. A voice id of None discards that speaker,
-    same meaning as speaker_map's None.
+    A voice id of None discards that speaker, same meaning as
+    speaker_map's None. One call writes the mapping, creates one
+    voice_contributions row per assigned speaker, and advances the run to
+    COMMITTED - there is no separate draft state, so a repeat call on an
+    already-committed run is rejected (409), unlike the old two-step flow's
+    assign, which could be called more than once.
     """
 
     assignments: dict[str, str | None]
 
 
 class RunAssignResponse(BaseModel):
-    """What got stored, for the caller to confirm against."""
+    """What one assign call did: the mapping stored and the contribution
+    rows it created in the same request."""
 
     run_id: str
     voice_assignments: dict[str, str | None]
-
-
-class RunCommitResponse(BaseModel):
-    """The contribution rows one commit created."""
-
     contributions: list[VoiceContribution] = Field(default_factory=list)

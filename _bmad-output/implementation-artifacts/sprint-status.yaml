@@ -52,9 +52,19 @@ development_status:
 
   epic-3: in-progress
   3-1-create-the-durable-voice-entity: review
-  3-2-split-assignment-from-commit-with-an-audit-trail: review
+  3-2-flatten-assignment-and-commit-into-one-immediate-audited-action: review
   3-3-trigger-training-explicitly-or-automatically-independent-of: review
   3-4-split-the-dashboard-into-videos-and-voices-views: review
   3-5-review-ingestion-and-assign-speakers-in-the-videos-view: review
   3-6-manage-voice-training-from-the-voices-view: review
   epic-3-retrospective: optional
+  # 2026-08-16: sprint-change-proposal-2026-08-16.md reversed Story 3.2's
+  # assign/commit split (approved by user). PRD FR17/FR18/FR19/FR26 and
+  # epics.md Stories 3.2/3.3/3.5/3.6 rewritten same day to match.
+  # spec-3-2-flatten-assign-commit.md (status: done) implemented the merged
+  # /runs/{id}/assign route, dropped discard_run, and adapted the existing
+  # Videos/Voices UI + a new voice_copilot_actions.tsx chat-tool surface.
+  # Reviewed via 3 parallel reviewers on 2026-08-16; one real bug (chat
+  # tool's per-speaker assign calls) fixed. Branch epic-3-flatten-assign-commit,
+  # uncommitted as of this status update. All Epic 3 stories now in review,
+  # pending commit and final sign-off.
