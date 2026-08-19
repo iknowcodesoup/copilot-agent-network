@@ -350,7 +350,10 @@ def _exporting_node_factory(gateway: VoiceFactoryGateway):
                 job_id = await gateway.start_job(
                     character=run.primary_character,
                     stage=STAGE_EXPORT,
-                    checkpoint=run.checkpoint_path,
+                    # No run ever wrote this column, so the value was already
+                    # always None - the column removal (Story 3.1) just makes
+                    # that explicit.
+                    checkpoint=None,
                 )
             except VoiceFactoryTransientError as error:
                 return _defer(run, f"Could not start export: {error}")

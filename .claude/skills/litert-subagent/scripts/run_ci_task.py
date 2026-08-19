@@ -50,8 +50,20 @@ def run_task_command(command: str) -> subprocess.CompletedProcess:
     # nx resolves to nx.ps1 on this machine. cmd.exe (shell=True) will not
     # find a .ps1 script, so invoke through PowerShell explicitly.
     powershell_command = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+    # text=True with no encoding falls back to the locale's preferred
+    # encoding, which on this host is cp1252 even though the console code
+    # page is UTF-8. Jest's default reporter writes UTF-8 pass/fail glyphs
+    # (checkmark, cross), and cp1252 cannot decode them - that crashes the
+    # subprocess reader thread and loses the whole result. Decoding as
+    # UTF-8 explicitly, with a replacement fallback for anything stricter
+    # tools still emit outside it, keeps every task's output capturable.
     return subprocess.run(
-        powershell_command, capture_output=True, text=True, cwd=repo_root
+        powershell_command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=repo_root,
     )
 
 

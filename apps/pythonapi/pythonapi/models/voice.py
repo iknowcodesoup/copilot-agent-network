@@ -27,12 +27,21 @@ class VoiceRunPhase(StrEnum):
     EXPORTING = "exporting"
     READY = "ready"
     FAILED = "failed"
+    # A run whose speaker->voice assignment has been turned into
+    # voice_contributions rows. Terminal, like READY/FAILED, but reached
+    # through routes/voice.py's assign_run rather than the reconciler.
+    COMMITTED = "committed"
 
 
 # Phases the reconciler leaves alone. AWAITING_REVIEW waits on a person, and the
-# other two are terminal.
+# rest are terminal.
 RESTING_PHASES = frozenset(
-    {VoiceRunPhase.AWAITING_REVIEW, VoiceRunPhase.READY, VoiceRunPhase.FAILED}
+    {
+        VoiceRunPhase.AWAITING_REVIEW,
+        VoiceRunPhase.READY,
+        VoiceRunPhase.FAILED,
+        VoiceRunPhase.COMMITTED,
+    }
 )
 
 
@@ -108,6 +117,11 @@ class VoiceRun(BaseModel):
     num_speakers: int | None = None
     # speaker label -> character name. None discards that speaker's clips.
     speaker_map: dict[str, str | None] = Field(default_factory=dict)
+    # speaker label -> Voice id. Distinct from speaker_map: this is DB-only and
+    # Voice-ID-scoped, never pushed to the voice factory host. Set by
+    # POST .../assign, which stores this mapping and commits it - contribution
+    # rows and phase change - in the same call.
+    voice_assignments: dict[str, str | None] = Field(default_factory=dict)
     voyicer_job_id: str | None = None
     # which of DOWNLOADING's ordered ingest steps is in flight
     ingest_stage_index: int = 0
@@ -115,7 +129,6 @@ class VoiceRun(BaseModel):
     commit_stage_index: int = 0
     clip_count: int = 0
     approved_count: int = 0
-    checkpoint_path: str | None = None
     # last training progress the factory reported, over the webhook
     current_epoch: int | None = None
     current_loss: float | None = None

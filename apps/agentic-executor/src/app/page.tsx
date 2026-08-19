@@ -1,97 +1,140 @@
 "use client";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
-import { RunCard } from "./features/voices/run_card";
-import { useVoiceRuns } from "./features/voices/voice_api";
-import { VideoSearch } from "./features/voices/video_search";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StudioProvider, useStudio } from "@/components/studio-provider";
+import { VideosView } from "@/components/videos-view";
+import { VoicesView } from "@/components/voices-view";
+import { LogMonitor } from "@/components/log-monitor";
+import { ChatPanel } from "@/components/chat-panel";
+import { AddVideoBar } from "@/components/add-video-bar";
 
-/*
- * The whole application. One page, because the chat docks beside it and has to
- * stay mounted: a human-in-the-loop confirm cannot survive a navigation.
- *
- * Runs expand in place rather than opening a screen of their own. That keeps
- * the fetching honest - a shut card mounts none of its children, so it costs
- * nothing, and opening one is what asks for its clips and its training log.
- */
-export default function DashboardPage() {
-  const runs = useVoiceRuns();
-  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
-  const [startingRun, setStartingRun] = useState(false);
+function ViewTabs() {
+  const { view, setView, snapshot } = useStudio();
+  const tabs: { id: "videos" | "voices"; label: string; count: number }[] = [
+    { id: "videos", label: "Videos", count: snapshot.videos.length },
+    { id: "voices", label: "Voices", count: snapshot.voices.length },
+  ];
+  return (
+    <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => setView(t.id)}
+          className={
+            view === t.id
+              ? "flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground"
+              : "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          }
+        >
+          {t.label}
+          <span
+            className={
+              view === t.id
+                ? "rounded-full bg-accent-foreground/20 px-1.5 text-[11px]"
+                : "rounded-full bg-muted px-1.5 text-[11px]"
+            }
+          >
+            {t.count}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
-  function openStartedRun(runId: string) {
-    setStartingRun(false);
-    setExpandedRunId(runId);
-  }
+function ConnectionBadge() {
+  const { connected } = useStudio();
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5">
+      <span className="relative flex h-2 w-2">
+        {connected && (
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-status-complete)] opacity-60" />
+        )}
+        <span
+          className="relative inline-flex h-2 w-2 rounded-full"
+          style={{
+            background: connected
+              ? "var(--color-status-complete)"
+              : "var(--color-status-failed)",
+          }}
+        />
+      </span>
+      <span className="font-mono text-[11px] text-muted-foreground">
+        {connected ? "query connected" : "query unavailable"}
+      </span>
+    </div>
+  );
+}
+
+function StudioShell() {
+  const { view } = useStudio();
+  const [logOpen, setLogOpen] = useState(true);
 
   return (
-    <main className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Voice models</h1>
-          <p className="text-xs text-muted-foreground">
-            Turn a YouTube video into a fine-tuned text-to-speech model.
-          </p>
+    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex flex-col gap-3 border-b border-border px-6 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent font-mono text-sm font-bold text-accent-foreground">
+                VS
+              </div>
+              <div>
+                <h1 className="font-mono text-base font-semibold leading-tight text-foreground">
+                  Voice Studio
+                </h1>
+                <p className="text-[11px] text-muted-foreground">
+                  YouTube to diarized clips to trained voice models
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <ConnectionBadge />
+              <button
+                type="button"
+                onClick={() => setLogOpen((o) => !o)}
+                className="rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {logOpen ? "Hide logs" : "Show logs"}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <ViewTabs />
+            <div className="min-w-0 flex-1">
+              <AddVideoBar />
+            </div>
+          </div>
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            {view === "videos" ? <VideosView /> : <VoicesView />}
+          </main>
+          {logOpen && (
+            <div className="h-56 shrink-0 border-t border-border">
+              <LogMonitor />
+            </div>
+          )}
         </div>
-        <Button
-          variant={startingRun ? "outline" : "secondary"}
-          size="sm"
-          onClick={() => setStartingRun((open) => !open)}
-        >
-          {startingRun ? "Cancel" : "New run"}
-        </Button>
-      </header>
+      </div>
 
-      {startingRun && (
-        <Card>
-          <CardContent className="flex flex-col gap-4 pt-6">
-            <p className="text-xs text-muted-foreground">
-              Find a video, name the character, and start. The pipeline
-              downloads the audio, splits it by speaker, then waits for you to
-              review the clips.
-            </p>
-            <VideoSearch onStarted={openStartedRun} />
-          </CardContent>
-        </Card>
-      )}
+      <div className="hidden w-80 shrink-0 lg:block xl:w-96">
+        <ChatPanel />
+      </div>
+    </div>
+  );
+}
 
-      {runs.isLoading && <Skeleton className="h-40 w-full" />}
-
-      {runs.isError && (
-        <Alert variant="destructive">
-          <AlertDescription>
-            Could not load runs: {(runs.error as Error).message}. Check that the
-            voice factory is running and VOICE_FACTORY_URL is set.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {runs.data?.length === 0 && !startingRun && (
-        <Card>
-          <CardContent className="pt-6 text-center text-xs text-muted-foreground">
-            No runs yet. Start one to build your first voice.
-          </CardContent>
-        </Card>
-      )}
-
-      <ul className="flex flex-col gap-2">
-        {runs.data?.map((run) => (
-          <li key={run.id}>
-            <RunCard
-              run={run}
-              expanded={run.id === expandedRunId}
-              onToggle={() =>
-                setExpandedRunId((current) =>
-                  current === run.id ? null : run.id,
-                )
-              }
-            />
-          </li>
-        ))}
-      </ul>
-    </main>
+export default function Page() {
+  const [queryClient] = useState(() => new QueryClient());
+  return (
+    <QueryClientProvider client={queryClient}>
+      <StudioProvider>
+        <StudioShell />
+      </StudioProvider>
+    </QueryClientProvider>
   );
 }

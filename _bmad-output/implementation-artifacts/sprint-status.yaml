@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-13-2026 20:40
-last_updated: 08-14-2026 12:30
+last_updated: 08-15-2026
 project: copilot_agent_network
 project_key: NOKEY
 tracking_system: file-system
@@ -44,17 +44,27 @@ development_status:
   1-6-show-agent-working-idle-status: backlog
   epic-1-retrospective: optional
 
-  epic-2: in-progress
-  2-1-reuse-ingested-videos-across-characters: review
-  2-2-route-one-commit-to-multiple-characters-across-multiple-vide: review
-  2-3-skip-redundant-preprocessing: backlog
+  epic-2: done
+  2-1-reuse-ingested-videos-across-characters: done
+  2-2-route-one-commit-to-multiple-characters-across-multiple-vide: done
+  2-3-skip-redundant-preprocessing: done
   epic-2-retrospective: optional
 
-  epic-3: backlog
-  3-1-create-the-durable-voice-entity: backlog
-  3-2-split-assignment-from-commit-with-an-audit-trail: backlog
-  3-3-trigger-training-explicitly-or-automatically-independent-of: backlog
-  3-4-split-the-dashboard-into-videos-and-voices-views: backlog
-  3-5-review-ingestion-and-assign-speakers-in-the-videos-view: backlog
-  3-6-manage-voice-training-from-the-voices-view: backlog
+  epic-3: in-progress
+  3-1-create-the-durable-voice-entity: review
+  3-2-flatten-assignment-and-commit-into-one-immediate-audited-action: review
+  3-3-trigger-training-explicitly-or-automatically-independent-of: review
+  3-4-split-the-dashboard-into-videos-and-voices-views: review
+  3-5-review-ingestion-and-assign-speakers-in-the-videos-view: review
+  3-6-manage-voice-training-from-the-voices-view: review
   epic-3-retrospective: optional
+  # 2026-08-16: sprint-change-proposal-2026-08-16.md reversed Story 3.2's
+  # assign/commit split (approved by user). PRD FR17/FR18/FR19/FR26 and
+  # epics.md Stories 3.2/3.3/3.5/3.6 rewritten same day to match.
+  # spec-3-2-flatten-assign-commit.md (status: done) implemented the merged
+  # /runs/{id}/assign route, dropped discard_run, and adapted the existing
+  # Videos/Voices UI + a new voice_copilot_actions.tsx chat-tool surface.
+  # Reviewed via 3 parallel reviewers on 2026-08-16; one real bug (chat
+  # tool's per-speaker assign calls) fixed. Branch epic-3-flatten-assign-commit,
+  # uncommitted as of this status update. All Epic 3 stories now in review,
+  # pending commit and final sign-off.

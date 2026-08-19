@@ -5,7 +5,7 @@ live in Qdrant only (see repositories/qdrant.py).
 
 from datetime import datetime
 
-from sqlalchemy import ARRAY, ForeignKey, Index, String, func
+from sqlalchemy import ARRAY, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -94,6 +94,9 @@ class VoiceRunRow(Base):
     num_speakers: Mapped[int | None]
     # speaker label -> character name, or None to discard that speaker
     speaker_map: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # speaker label -> Voice id (Story 3.2), or None to discard that speaker.
+    # DB-only, never sent to the voice factory host - see VoiceRun.voice_assignments.
+    voice_assignments: Mapped[dict] = mapped_column(JSONB, default=dict)
     # the control API job backing the current phase, if one is running
     voyicer_job_id: Mapped[str | None]
     # DOWNLOADING runs the ingest steps in order (download, transcribe, chunk,
@@ -105,7 +108,6 @@ class VoiceRunRow(Base):
     commit_stage_index: Mapped[int] = mapped_column(default=0)
     clip_count: Mapped[int] = mapped_column(default=0)
     approved_count: Mapped[int] = mapped_column(default=0)
-    checkpoint_path: Mapped[str | None]
     # last training progress the factory reported over its webhook
     current_epoch: Mapped[int | None]
     current_loss: Mapped[float | None]
@@ -124,3 +126,57 @@ class VoiceRunRow(Base):
     lease_owner: Mapped[str | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class VoiceRow(Base):
+    """One durable voice: the trained-model identity a run's clips
+    contribute to (Story 3.1 introduces the entity only - no contribution
+    link exists until Story 3.2).
+
+    `phase` tracks training progress and is independent of any one
+    VoiceRunRow's `phase`, which tracks a single video's ingest.
+    """
+
+    __tablename__ = "voices"
+    __table_args__ = (
+        Index("idx_voices_phase", "phase"),
+        Index("idx_voices_name", "name", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    phase: Mapped[str]
+    checkpoint_path: Mapped[str | None]
+    # the control API job backing the current phase, if one is running
+    voyicer_job_id: Mapped[str | None]
+    # Mutual exclusion for multiple API instances, same pattern as
+    # VoiceRunRow above: an instance claims a voice by setting these in one
+    # atomic UPDATE, and the lease expires on its own.
+    leased_until: Mapped[datetime | None]
+    lease_owner: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class VoiceContributionRow(Base):
+    """One video's clips committed into one voice, under one speaker label.
+
+    Append-only (Story 3.2): no update method exists on the repository, only
+    create_contribution and read queries. This is the audit trail FR19 asks
+    for - which video contributed which speaker to which voice, and when.
+    """
+
+    __tablename__ = "voice_contributions"
+    __table_args__ = (
+        Index("idx_voice_contributions_voice_id", "voice_id"),
+        Index("idx_voice_contributions_run_id", "run_id"),
+        UniqueConstraint(
+            "voice_id", "run_id", "speaker_label", name="uq_voice_contributions_key"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    voice_id: Mapped[str] = mapped_column(ForeignKey("voices.id", ondelete="CASCADE"))
+    run_id: Mapped[str] = mapped_column(ForeignKey("voice_runs.id", ondelete="CASCADE"))
+    speaker_label: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

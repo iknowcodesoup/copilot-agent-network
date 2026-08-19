@@ -22,6 +22,9 @@ const config = {
   // Runs before the test framework and before any module import, which is what
   // the jose/TextEncoder polyfill in there needs to be useful.
   setupFiles: ["<rootDir>/jest.setup.ts"],
+  // Runs after the test framework is installed - jest-dom's matchers need
+  // expect to already exist, which setupFiles runs too early for.
+  setupFilesAfterEnv: ["<rootDir>/jest.setup.after-env.ts"],
 };
 
 /*
