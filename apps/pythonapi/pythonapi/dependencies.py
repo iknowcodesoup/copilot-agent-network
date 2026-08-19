@@ -25,9 +25,12 @@ from pythonapi.repositories.base import DocumentRepository
 from pythonapi.repositories.orders import OrderRepository
 from pythonapi.repositories.pii_vault import PiiVaultRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
+from pythonapi.repositories.voice_contributions import VoiceContributionRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
+from pythonapi.repositories.voices import VoiceRepository
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
+from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 
 def get_redis(request: Request) -> Redis | None:
@@ -96,6 +99,16 @@ def get_required_voice_run_repository(request: Request) -> VoiceRunRepository:
     return request.app.state.voice_run_repository
 
 
+def get_required_voice_repository(request: Request) -> VoiceRepository:
+    return request.app.state.voice_repository
+
+
+def get_required_voice_contribution_repository(
+    request: Request,
+) -> VoiceContributionRepository:
+    return request.app.state.voice_contribution_repository
+
+
 def get_voice_tool_registry(request: Request) -> VoiceToolRegistry | None:
     """None without a voice factory. The chat agent then runs without tools
     rather than failing, which is what keeps VOICE_FACTORY_URL optional."""
@@ -116,6 +129,22 @@ def get_required_voice_run_reconciler(request: Request) -> VoiceRunReconciler:
             detail="The voice factory is not configured. Set VOICE_FACTORY_URL.",
         )
     return reconciler
+
+
+def get_required_voice_training_reconciler(request: Request) -> VoiceTrainingReconciler:
+    reconciler = request.app.state.voice_training_reconciler
+    if reconciler is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The voice factory is not configured. Set VOICE_FACTORY_URL.",
+        )
+    return reconciler
+
+
+def get_voice_training_reconciler(request: Request) -> VoiceTrainingReconciler | None:
+    """None without a voice factory. assign_run is DB-only and must keep
+    working in that case - it just has nothing to wake."""
+    return request.app.state.voice_training_reconciler
 
 
 def get_search_cache(request: Request) -> LRUCache:

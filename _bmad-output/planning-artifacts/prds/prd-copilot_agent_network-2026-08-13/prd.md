@@ -37,11 +37,11 @@ This PRD covers the next increment of that demonstration: closing the agent's to
 
 - **Run** — one video's ingestion lifecycle instance, tracked through `ingest_phase` (`DOWNLOADING` → `DIARIZING` → `AWAITING_REVIEW` → `COMMITTED`).
 - **Video** — the unit of ingestion: one YouTube source, downloaded/transcribed/diarized once and reusable across characters/voices via cached artifacts keyed by video ID.
-- **Voice** — a durable entity (name, training `phase`, `checkpoint_path`) that one or more videos can contribute clips to over time. Distinct from a Run: committing a Run does not by itself change any Voice's phase.
-- **Voice Contribution** — one immutable record of a (voice, run, speaker) triple, created on commit. Never updated in place; the audit trail of what fed a voice's training.
+- **Voice** — a durable entity (name, training `phase`, `checkpoint_path`) that one or more videos can contribute clips to over time. Distinct from a Run, though tracked on a separate table: a Run reaching `COMMITTED` moves its assigned Voice(s) to `TRAINING` in the same call `[UPDATED 2026-08-16]`.
+- **Voice Contribution** — one immutable record of a (voice, run, speaker) triple, created on assignment `[UPDATED 2026-08-16, was: "on commit"]`. Never updated in place; the audit trail of what fed a voice's training.
 - **Speaker** — a diarized voice detected within one video, identified by a label, prior to assignment to a Voice.
-- **Assign** — associating a video's detected speaker with a Voice, without yet locking that association in or starting training.
-- **Commit** — locking in an assignment: creates the Voice Contribution record(s) and advances the Run's `ingest_phase` to `COMMITTED`.
+- **Assign** — associating a video's detected speaker with a Voice. `[UPDATED 2026-08-16]` This now commits immediately: it writes the Voice Contribution record(s) and advances the Run's `ingest_phase` to `COMMITTED` in the same call. There is no longer a separate, reversible pre-commit state.
+- **Commit** — `[SUPERSEDED 2026-08-16]` No longer a separate operation. Assigning a speaker to a Voice now commits it immediately (see **Assign**); the term is retained here only for reading pre-2026-08-16 artifacts.
 - **Ingest Phase** — a Run's state: `DOWNLOADING`, `DIARIZING`, `AWAITING_REVIEW`, `COMMITTED`.
 - **Voice Phase** — a Voice's training state: `AWAITING_COMMIT`, `TRAINING`, `EXPORTING`, `READY`, `FAILED`.
 - **AG-UI** — the SSE-based protocol carrying agent run events (including tool-call events) between the FastAPI service and the browser.
@@ -165,14 +165,14 @@ Running preprocess after new clips land regenerates the training config; running
 #### FR-16: Voice is a durable, independent entity
 The system represents a Voice (id, name, `phase`, `checkpoint_path`) independent of any single video via a `voices` table, exposed via `POST /voices` to create a named Voice and `GET /voices/{id}` to fetch a Voice with its contributions.
 
-#### FR-17: Ingest phase and voice phase are tracked and change independently
-Run `ingest_phase` (`DOWNLOADING`/`DIARIZING`/`AWAITING_REVIEW`/`COMMITTED`) and Voice `phase` (`AWAITING_COMMIT`/`TRAINING`/`EXPORTING`/`READY`/`FAILED`) are tracked separately; a Run reaching `COMMITTED` does not itself change any Voice's phase.
+#### FR-17: Ingest phase and voice phase are tracked on separate tables; a Run reaching `COMMITTED` moves its assigned Voice(s) to `TRAINING`
+Run `ingest_phase` (`DOWNLOADING`/`DIARIZING`/`AWAITING_REVIEW`/`COMMITTED`) and Voice `phase` (`AWAITING_COMMIT`/`TRAINING`/`EXPORTING`/`READY`/`FAILED`) remain tracked on separate tables/columns. A Run reaching `COMMITTED` — now the immediate result of assignment, not a later step — moves the assigned Voice(s) to `TRAINING` in the same operation. `[SUPERSEDED 2026-08-16]` Originally read "a Run reaching `COMMITTED` does not itself change any Voice's phase" — reversed by user decision; see `sprint-change-proposal-2026-08-16.md`.
 
-#### FR-18: Assignment and commit are separate operations
-`POST /runs/{id}/assign` associates a video's speakers with Voices without changing `ingest_phase`. `POST /runs/{id}/commit` separately creates immutable Voice Contribution records and advances `ingest_phase` to `COMMITTED`.
+#### FR-18: Assigning a speaker to a Voice assigns, writes a contribution, and advances the run, in one call
+`POST /runs/{id}/assign` associates a video's speakers with Voices, creates one immutable Voice Contribution record per (voice, run, speaker) triple, and advances `ingest_phase` to `COMMITTED`, all in one call. `[SUPERSEDED 2026-08-16]` Originally split this across two routes (`/assign` then a separate `/commit`) — merged by user decision; see `sprint-change-proposal-2026-08-16.md`.
 
 #### FR-19: Every contribution is an immutable audit record
-One `voice_contributions` row is created per (voice, run, speaker) triple on commit; rows are never updated in place.
+One `voice_contributions` row is created per (voice, run, speaker) triple on assignment; rows are never updated in place. `[REWORDED 2026-08-16]` Trigger changed from "on commit" to "on assignment" to match FR-18's merge — the one-row-per-triple and immutability invariants are unchanged.
 
 #### FR-20: Training can be triggered explicitly or automatically
 `POST /voices/{id}/train` triggers training explicitly; training also triggers automatically on a Voice's first contribution. `[ASSUMPTION]` Both trigger paths are supported concurrently, since the source spec did not pick one exclusively — confirm this is still the intended behavior rather than a placeholder for a later decision.
@@ -206,8 +206,8 @@ The Videos view lists video title, source URL, speaker count, and diarization st
 #### FR-25: Speaker naming is search-or-create, not free text
 Speaker naming uses a combobox that searches existing Voices or creates a new one inline.
 
-#### FR-26: Assign, commit, and discard are distinct, visible actions
-"Assign speakers" opens the combobox without starting training; "Commit assignments" locks assignments in and creates contributions; "Discard" resets a run to `AWAITING_REVIEW`. Multiple videos can be assigned in parallel and committed individually or in batch.
+#### FR-26: Assigning a speaker to a Voice commits immediately — no separate commit or discard step
+Assigning a speaker to a Voice via the combobox commits immediately: it creates the contribution record and, on a Voice's first contribution, triggers training. Multiple videos' speakers can be assigned independently and in any order. `[SUPERSEDED 2026-08-16]` Originally read: "'Assign speakers' opens the combobox without starting training; 'Commit assignments' locks assignments in and creates contributions; 'Discard' resets a run to `AWAITING_REVIEW`." The three-action model is reversed in favor of the adopted UI design's single relabel-and-done interaction; see `sprint-change-proposal-2026-08-16.md`.
 
 #### FR-27: Voices view surfaces training state per voice
 The Voices view shows a card per Voice: name, phase, total clip count, and model size once `READY`. Each card shows a contributing-videos count badge (e.g. "3 videos") that opens a popover listing each contributing video, its clip count, and assignment date. A Voice with `AWAITING_COMMIT` contributions shows a phase-conditional "Train now" action; a standing "Retrain" action independently re-triggers `POST /voices/{id}/train` regardless of that condition. "View clips" opens a modal listing every clip across all of the Voice's contributing videos. "Download model" activates once a Voice reaches `READY`.
@@ -256,7 +256,7 @@ The Voices view shows a card per Voice: name, phase, total clip count, and model
 
 ## 8. Open Questions
 
-1. Once 4.5 ships, what is the concrete tool inventory for the new Videos/Voices actions, and how does each classify under the Need-to-Hook policy table (`useFrontendTool` vs. `useHumanInTheLoop`) — e.g., for commit, train, discard? (From 4.2's deferred scope.)
+1. Once 4.5 ships, what is the concrete tool inventory for the new Videos/Voices actions, and how does each classify under the Need-to-Hook policy table (`useFrontendTool` vs. `useHumanInTheLoop`) — e.g., for assign (now commit-on-assign) and train? (From 4.2's deferred scope.) `[UPDATED 2026-08-16]` "Commit" and "discard" dropped from the example list — assign/commit merged and discard was removed; see `sprint-change-proposal-2026-08-16.md`.
 2. ~~What is the migration path for pre-existing `work/<character>/youtube/*` directories...~~ **Resolved during story creation:** accepted one-time re-ingest in development; no migration script. See `_bmad-output/planning-artifacts/epics.md`, Epic 2.
 3. Is the dual training-trigger behavior in FR-20 (explicit call and auto-trigger-on-first-contribution) the intended permanent behavior, or a placeholder pending a later decision to pick one?
 4. ~~FR-10's "expand a run" frontend tool (§4.2) is built against whichever run-list UI exists when 4.2 ships...~~ **Resolved during epic planning:** the voice-pipeline rework (4.3–4.5) ships before the agent tool-calling thread (4.1–4.2). FR-10 is built once, directly against the final Videos/Voices UI — no rework pass or dual SM-1 validation needed. See `_bmad-output/planning-artifacts/epics.md`, Epic ordering.
