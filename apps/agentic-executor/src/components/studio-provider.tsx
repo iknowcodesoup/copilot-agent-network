@@ -81,12 +81,12 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const voicesQuery = useVoiceList();
   const startRun = useStartRun();
   const createVoiceMutation = useCreateVoice();
-  const updateClips = useUpdateClips("");
   const [view, setView] = useState<View>("videos");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState("all");
   const activeRunId = selectedRunId ?? runsQuery.data?.[0]?.id ?? "";
+  const updateClips = useUpdateClips(activeRunId);
   const logQuery = useJobLog(activeRunId, Boolean(activeRunId));
   const speakerBoardQuery = useSpeakerBoard(activeRunId, Boolean(activeRunId));
   const assignRun = useAssignRun(activeRunId);
@@ -168,7 +168,12 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     ) => {
       if (!activeRunId) return;
       await updateClips.mutateAsync([
-        { clipId, keep: patch.keep, speakerLabel: patch.speakerLabel },
+        {
+          clipId,
+          keep: patch.keep,
+          speakerLabel: patch.speakerLabel,
+          text: patch.text,
+        },
       ]);
     },
     [activeRunId, updateClips],
