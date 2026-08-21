@@ -165,6 +165,7 @@ export interface ClipDecision {
   clipId: string
   keep?: boolean
   speakerLabel?: string | null
+  text?: string
 }
 
 // ── Durable Voice entity ───────────────────────────────────────────────────

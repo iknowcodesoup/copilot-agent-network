@@ -198,6 +198,7 @@ class ClipDecision(BaseModel):
     clip_id: str
     keep: bool | None = None
     speaker_label: str | None = None
+    text: str | None = None
 
 
 class ClipDecisionRequest(BaseModel):
