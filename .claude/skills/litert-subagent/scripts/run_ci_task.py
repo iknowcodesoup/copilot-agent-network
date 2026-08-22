@@ -15,7 +15,9 @@ from pathlib import Path
 skill_root = Path(__file__).resolve().parents[1]
 repo_root = Path(__file__).resolve().parents[4]
 assets_dir = skill_root / "assets"
-model_path = assets_dir / "gemma-4-12B-it-gpu.litertlm"
+# Resolved by litert-lm's own model registry (`litert-lm list`), which reads
+# %userprofile%\.litert-lm\models - not a file expected to live in assets/.
+model_id = "gemma-4-12B-it-gpu.litertlm"
 preset_path = skill_root / "scripts" / "preset.py"
 fix_summary_path = assets_dir / "last_fix_summary.txt"
 touched_files_path = assets_dir / "touched_files.txt"
@@ -145,7 +147,7 @@ def request_fix(prompt: str) -> None:
     litert_command = [
         "litert-lm",
         "run",
-        str(model_path),
+        model_id,
         "--backend=gpu",
         f"--preset={preset_path}",
         f"--prompt={prompt}",

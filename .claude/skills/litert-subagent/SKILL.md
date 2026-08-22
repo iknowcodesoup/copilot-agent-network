@@ -12,12 +12,20 @@ This skill allows the agent to run local AI inference, process multimodal inputs
 
 ## Workspace Structure
 This skill operates within a self-contained directory structure:
-*   `assets/`: Used for all input attachments (images, audio). 
+*   `assets/`: Used for all input attachments (images, audio), plus this skill's own log/summary files.
 *   `scripts/`: Used for generating any required Python code (e.g., tool presets).
-*   **Model Files:** `.litertlm` files may exist in the root or `assets/` directory but are explicitly ignored in version control.
+*   **Model Files:** Models are NOT stored in this skill. `litert-lm` maintains its own model
+    registry under `%userprofile%\.litert-lm\models`, installed and managed via
+    `litert-lm import` / `litert-lm list` / `litert-lm delete`. Always reference an installed
+    model by its ID, never by a path into `assets/`.
 
 ## Instructions
 When the user asks to run a local model, process an image/audio locally, or test a tool-calling preset, construct and execute the appropriate `litert-lm` command in the VS Code terminal.
+
+Before assuming a model name, run `litert-lm list` to see what is actually installed. Multiple
+models can be present at once (e.g. `gemma-4-12B-it-gpu.litertlm`, `gemma-4-E4B-it-gpu.litertlm`).
+Pass the ID exactly as `litert-lm list` prints it in the `ID` column - do not guess a filename or
+assume it lives under `assets/`.
 
 ### Default Environment Guidelines
 *   **Package Manager:** If a Python environment is required for tool presets or scripting, always use `uv`.
@@ -29,16 +37,18 @@ When the user asks to run a local model, process an image/audio locally, or test
 
 1.  **Basic Inference (GPU Optimized):**
     ```bash
-    litert-lm run <model-path>.litertlm \
+    litert-lm run <model-id> \
       --backend=gpu \
       --enable-speculative-decoding=true \
       --prompt="<user-prompt>"
     ```
+    `<model-id>` is an ID from `litert-lm list` (e.g. `gemma-4-12B-it-gpu.litertlm`), not a
+    path. A raw path only applies to a model that has not been imported yet.
 
 2.  **Multimodal Execution (Vision/Audio):**
     Append the necessary attachments using the `assets/` directory.
     ```bash
-    litert-lm run <model-path>.litertlm \
+    litert-lm run <model-id> \
       --backend=gpu \
       --vision-backend=gpu \
       --attachment=assets/<image-name>.jpg \
@@ -50,7 +60,7 @@ When the user asks to run a local model, process an image/audio locally, or test
     1.  Generate a `preset.py` file containing the requested tools inside the `scripts/` folder.
     2.  Run the model referencing that preset:
     ```bash
-    litert-lm run <model-path>.litertlm --preset=scripts/preset.py --backend=gpu
+    litert-lm run <model-id> --preset=scripts/preset.py --backend=gpu
     ```
 
 ## CI Task Delegation (lint / test / build)
@@ -117,8 +127,9 @@ context. Open that log only if the user explicitly asks to debug a failure.
 
 ### Feasibility
 
-The local model (`assets/gemma-4-12B-it-gpu.litertlm`, a quantized 12B
-instruct model) is realistic for mechanical fixes — formatting, import
+The local model (`gemma-4-12B-it-gpu.litertlm`, a quantized 12B instruct
+model installed in the `litert-lm` registry — see Workspace Structure) is
+realistic for mechanical fixes — formatting, import
 order, unused variables, simple type errors. It is not reliable for deep
 logic bugs or subtle test failures. A `FAILED` result is expected sometimes,
 not a bug in the script.

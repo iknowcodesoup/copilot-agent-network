@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useStudio } from "@/components/studio-provider";
+import { openVideoThenContinue } from "@/lib/watch_gate";
 
 export function AddVideoBar() {
   const { addVideo, setView } = useStudio();
@@ -14,6 +15,9 @@ export function AddVideoBar() {
     const v = url.trim();
     if (!v || busy) return;
     setBusy(true);
+    /* Same gate the search view uses: play the video by hand, close the tab,
+       then the ingest runs. */
+    await openVideoThenContinue(v);
     const created = await addVideo(v);
     setBusy(false);
     if (created) {

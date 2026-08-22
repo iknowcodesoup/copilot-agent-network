@@ -61,6 +61,7 @@ export interface VideoSummary {
   url: string | null
   durationSec: number | null
   channel: string | null
+  thumbnailUrl: string | null
   ingestedAt: string | null
 }
 

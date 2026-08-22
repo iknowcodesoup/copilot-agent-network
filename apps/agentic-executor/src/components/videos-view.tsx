@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Film, Pencil } from "lucide-react";
-import { useRenameVideo, useVideos, useVoiceRuns } from "@/lib/voice_api";
+import { Film, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import {
+  useDeleteRun,
+  useRenameVideo,
+  useRetryRun,
+  useVideos,
+  useVoiceRuns,
+} from "@/lib/voice_api";
+import { Button } from "@/components/ui/button";
 import type { VideoSummary, VoiceRun } from "@/lib/types";
+import { WatchLink } from "./watch-link";
 import { VideoCard } from "./video-card";
 import { ClipTable } from "./clip-table";
 import { StatusPill } from "./status-pill";
@@ -83,6 +91,56 @@ function toneForPhase(phase: VoiceRun["phase"]) {
   return "in-progress" as const;
 }
 
+/* Retry and delete for one run.
+ *
+ * Retry only appears on a failed run, because that is the only phase the API
+ * accepts it in - it puts the run back in failed_from_phase. Delete drops the
+ * run row and cancels its job; the factory keeps the downloaded audio and
+ * clips, so the same video can be claimed again without a second download. */
+function RunActions({ run }: { run: VoiceRun }) {
+  const retryRun = useRetryRun(run.id);
+  const deleteRun = useDeleteRun();
+  const { setSelectedRunId } = useStudio();
+  const busy = retryRun.isPending || deleteRun.isPending;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {run.phase === "failed" && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => retryRun.mutate()}
+        >
+          <RotateCcw />
+          {retryRun.isPending ? "Retrying…" : "Retry"}
+        </Button>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        onClick={() => {
+          if (!window.confirm("Delete this run? The video and its clips stay."))
+            return;
+          deleteRun.mutate(run.id, {
+            onSuccess: () => setSelectedRunId(null),
+          });
+        }}
+        className="text-destructive hover:text-destructive"
+      >
+        <Trash2 />
+        {deleteRun.isPending ? "Deleting…" : "Delete run"}
+      </Button>
+      {(retryRun.isError || deleteRun.isError) && (
+        <span className="text-xs text-destructive">
+          {((retryRun.error ?? deleteRun.error) as Error).message}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function VideosView() {
   const videos = useVideos();
   const runs = useVoiceRuns();
@@ -115,6 +173,10 @@ export function VideosView() {
     rows.find((row) => row.video.videoId === selectedVideoId) ??
     rows[0] ??
     null;
+  /* The factory learns a video's URL only once meta.json is written, so the
+     run's own source_url stands in until then. */
+  const selectedWatchUrl =
+    selectedRow?.video.url ?? selectedRow?.run?.sourceUrl ?? null;
 
   if (videos.isLoading)
     return (
@@ -157,6 +219,7 @@ export function VideosView() {
                 key={video.videoId}
                 video={video}
                 phase={run?.phase ?? null}
+                watchUrl={video.url ?? run?.sourceUrl ?? null}
                 selected={
                   video.videoId === selectedRow?.video.videoId
                 }
@@ -193,6 +256,12 @@ export function VideosView() {
                 <span className="truncate font-mono text-[0.7rem]">
                   {run.videoId ?? "no video id"}
                 </span>
+                <div className="ml-auto flex items-center gap-2">
+                  {/* The run keeps the URL even when its video is gone, so an
+                      orphan can still be opened and re-ingested. */}
+                  <WatchLink url={run.sourceUrl} />
+                  <RunActions run={run} />
+                </div>
               </li>
             ))}
           </ul>
@@ -214,17 +283,28 @@ export function VideosView() {
                 label={selectedRow.run.phase.replaceAll("_", " ")}
               />
             )}
-            {selectedRow.video.url && (
-              <a
-                href={selectedRow.video.url}
-                target="_blank"
-                rel="noreferrer"
-                className="ml-auto truncate font-mono text-[0.7rem] text-muted-foreground hover:text-primary"
-              >
-                {selectedRow.video.url}
-              </a>
+            {selectedWatchUrl && (
+              <WatchLink
+                url={selectedWatchUrl}
+                label="Watch on YouTube"
+                className="ml-auto"
+              />
             )}
           </div>
+
+          {selectedRow.run && (
+            <div className="mb-4 flex flex-col gap-2">
+              {/* The failure text is the only record of why a run stopped, so
+                  it sits next to the button that acts on it. */}
+              {selectedRow.run.phase === "failed" && selectedRow.run.error && (
+                <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 font-mono text-[0.7rem] text-destructive">
+                  {selectedRow.run.error}
+                </p>
+              )}
+              <RunActions run={selectedRow.run} />
+            </div>
+          )}
+
           <ClipTable
             videoId={selectedRow.video.videoId}
             runId={selectedRow.run?.id ?? null}

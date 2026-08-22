@@ -6,15 +6,17 @@ import { StudioProvider, useStudio } from "@/components/studio-provider";
 import { VoiceLiveState } from "@/lib/voice_event_stream";
 import { VideosView } from "@/components/videos-view";
 import { VoicesView } from "@/components/voices-view";
+import { SearchView } from "@/components/search-view";
 import { LogMonitor } from "@/components/log-monitor";
 import { ChatPanel } from "@/components/chat-panel";
 import { AddVideoBar } from "@/components/add-video-bar";
 
 function ViewTabs() {
   const { view, setView, snapshot } = useStudio();
-  const tabs: { id: "videos" | "voices"; label: string; count: number }[] = [
+  const tabs: { id: "videos" | "voices" | "search"; label: string; count?: number }[] = [
     { id: "videos", label: "Videos", count: snapshot.videos.length },
     { id: "voices", label: "Voices", count: snapshot.voices.length },
+    { id: "search", label: "Search" },
   ];
   return (
     <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
@@ -30,15 +32,17 @@ function ViewTabs() {
           }
         >
           {t.label}
-          <span
-            className={
-              view === t.id
-                ? "rounded-full bg-accent-foreground/20 px-1.5 text-[11px]"
-                : "rounded-full bg-muted px-1.5 text-[11px]"
-            }
-          >
-            {t.count}
-          </span>
+          {t.count !== undefined && (
+            <span
+              className={
+                view === t.id
+                  ? "rounded-full bg-accent-foreground/20 px-1.5 text-[11px]"
+                  : "rounded-full bg-muted px-1.5 text-[11px]"
+              }
+            >
+              {t.count}
+            </span>
+          )}
         </button>
       ))}
     </div>
@@ -112,7 +116,13 @@ function StudioShell() {
 
         <div className="flex min-h-0 flex-1 flex-col">
           <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            {view === "videos" ? <VideosView /> : <VoicesView />}
+            {view === "videos" ? (
+              <VideosView />
+            ) : view === "voices" ? (
+              <VoicesView />
+            ) : (
+              <SearchView />
+            )}
           </main>
           {logOpen && (
             <div className="h-56 shrink-0 border-t border-border">

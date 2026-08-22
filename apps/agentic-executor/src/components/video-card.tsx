@@ -2,6 +2,7 @@
 
 import { Film, Scissors } from "lucide-react";
 import { StatusPill } from "./status-pill";
+import { WatchLink } from "./watch-link";
 import { cn } from "@/lib/utils";
 import type { VideoSummary, VoiceRunPhase } from "@/lib/types";
 
@@ -20,29 +21,54 @@ function toneForPhase(
 export function VideoCard({
   video,
   phase,
+  watchUrl,
   selected,
   onSelect,
 }: {
   video: VideoSummary;
   phase: VoiceRunPhase | null;
+  /* Where to watch this video. The factory knows it only once meta.json is
+     written, so the run's own source_url stands in until then. */
+  watchUrl: string | null;
   selected: boolean;
   onSelect: () => void;
 }) {
   const tone = phase ? toneForPhase(phase) : null;
   return (
-    <button
-      type="button"
+    /* A div, not a button: the Watch link nests inside, and an anchor inside a
+       button is invalid markup that browsers resolve unpredictably. */
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
       className={cn(
-        "group flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-all",
+        "group flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-card text-left transition-all",
         selected
           ? "border-primary/60 ring-1 ring-primary/40"
           : "border-border hover:border-primary/30",
       )}
     >
       <div className="relative flex h-20 items-end overflow-hidden bg-muted/30 px-3 pb-3 pt-6">
+        {video.thumbnailUrl && (
+          // a plain img, not next/image: next/image needs every remote host
+          // declared up front, and YouTube serves thumbnails from several domains
+          <img
+            src={video.thumbnailUrl}
+            alt=""
+            className="absolute inset-0 size-full object-cover"
+          />
+        )}
         <Film className="absolute left-3 top-2 size-3.5 text-muted-foreground/60" />
         <div className="absolute inset-0 bg-background/35" />
+        {watchUrl && (
+          <WatchLink url={watchUrl} className="absolute right-2 top-2" />
+        )}
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="flex items-start justify-between gap-2">
@@ -70,6 +96,6 @@ export function VideoCard({
           )}
         </div>
       </div>
-    </button>
+    </div>
   );
 }

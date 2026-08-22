@@ -66,8 +66,10 @@ export function useAssistant() {
         snapshot.voices.find((v) => v.name.toLowerCase() === q.toLowerCase()) ??
         snapshot.voices.find((v) => v.name.toLowerCase().includes(q.toLowerCase()))
 
-      const currentRun = snapshot.runs.find((r) => r.id === selectedRunId) ?? snapshot.runs[0]
-      const currentVoice = snapshot.voices.find((v) => v.id === selectedVoiceId) ?? snapshot.voices[0]
+      // No fallback to the first entry. "Whatever sorts first" is not what the
+      // operator meant, and every command below already refuses a missing one.
+      const currentRun = snapshot.runs.find((r) => r.id === selectedRunId)
+      const currentVoice = snapshot.voices.find((v) => v.id === selectedVoiceId)
 
       // --- addVideo ---
       const urlMatch = text.match(/https?:\/\/\S+/)

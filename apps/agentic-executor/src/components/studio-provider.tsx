@@ -34,7 +34,7 @@ import type {
   VoiceRun,
 } from "@/lib/types";
 
-type View = "videos" | "voices";
+type View = "videos" | "voices" | "search";
 interface StudioContextValue {
   snapshot: Snapshot;
   logs: LogLine[];
@@ -104,12 +104,13 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     },
     [runs],
   );
+  /* No fallback to the first run. Nothing selected means no target, and
+     guessing one silently pointed every clip write and every commit at
+     whichever run happened to sort first. */
   const activeRunId =
     (selectedVideoId
       ? runs.find((run) => run.videoId === selectedVideoId)?.id
-      : selectedRunId) ??
-    runsQuery.data?.[0]?.id ??
-    "";
+      : selectedRunId) ?? "";
   /* Clips are addressed by video, so the board and every clip write need the
      run's video, not the run. A run with no video id has no clips to show. */
   const activeVideoId =
@@ -190,7 +191,10 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       clipId: string,
       patch: { speakerLabel?: string; text?: string; keep?: boolean },
     ) => {
-      if (!activeVideoId) return;
+      /* Throws rather than returning: a clip write that quietly does nothing
+         reads as a saved edit, and the operator finds out at commit. */
+      if (!activeVideoId)
+        throw new Error("Select a video before editing its clips.");
       await updateClips.mutateAsync([
         {
           clipId,
@@ -204,7 +208,8 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   );
   const assignClipVoice = useCallback(
     async (clipId: string, voiceId: string) => {
-      if (!activeRunId) return;
+      if (!activeRunId)
+        throw new Error("Select a video before assigning its clips.");
       const newAssignments: { [id: string]: string } = {};
       const target = clips.find((clip) => clip.clipId === clipId);
       if (target)
@@ -214,7 +219,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     [activeRunId, assignRun, clips],
   );
   const commitRun = useCallback(async () => {
-    if (!activeRunId) return;
+    if (!activeRunId) throw new Error("Select a video before committing it.");
     await commitRunMutation.mutateAsync();
   }, [activeRunId, commitRunMutation]);
   const createVoice = useCallback(
