@@ -1,8 +1,9 @@
-"""Schemas for the voice-model pipeline.
+"""Schemas for the durable Voice entity (Story 3.1).
 
-A voice run tracks one source video from download through to an exported model.
-The pipeline itself lives in the star-trek-voyicer repo; this service only
-orchestrates it and holds the run state.
+A Voice is the trained-model identity: independent of any single video, it
+receives clip contributions from one or more voice runs (Story 3.2) and
+tracks its own training phase, separate from a run's ingest phase
+(VoiceRunPhase in models/voice_run.py).
 """
 
 from datetime import datetime
@@ -11,113 +12,88 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, field_validator
 
 
-class VoiceRunPhase(StrEnum):
-    """Where one run has reached.
+class VoicePhase(StrEnum):
+    """Where one voice has reached in training.
 
-    The reconciler advances a run through these. AWAITING_REVIEW is the
-    human-in-the-loop pause: the run stops there until an operator approves the
-    clips, for as long as that takes. READY and FAILED are terminal.
+    READY and FAILED are terminal. AWAITING_COMMIT is where every voice
+    starts, since no contribution has committed clips to it yet.
     """
 
-    DOWNLOADING = "downloading"
-    DIARIZING = "diarizing"
-    AWAITING_REVIEW = "awaiting_review"
-    COMMITTING = "committing"
+    AWAITING_COMMIT = "awaiting_commit"
     TRAINING = "training"
     EXPORTING = "exporting"
     READY = "ready"
     FAILED = "failed"
-    # A run whose speaker->voice assignment has been turned into
-    # voice_contributions rows. Terminal, like READY/FAILED, but reached
-    # through routes/voice.py's assign_run rather than the reconciler.
-    COMMITTED = "committed"
 
 
-# Phases the reconciler leaves alone. AWAITING_REVIEW waits on a person, and the
-# rest are terminal.
+# Phases the training reconciler leaves alone. AWAITING_COMMIT waits on a
+# contribution or an explicit train call; READY and FAILED are terminal.
+# TRAINING/EXPORTING are the only claimable phases.
 RESTING_PHASES = frozenset(
     {
-        VoiceRunPhase.AWAITING_REVIEW,
-        VoiceRunPhase.READY,
-        VoiceRunPhase.FAILED,
-        VoiceRunPhase.COMMITTED,
+        VoicePhase.AWAITING_COMMIT,
+        VoicePhase.READY,
+        VoicePhase.FAILED,
     }
 )
 
 
-class VideoResult(BaseModel):
-    """One YouTube search hit."""
+class VoiceRequest(BaseModel):
+    """Create a voice by name."""
 
-    video_id: str
-    title: str
-    duration_sec: float | None = None
-    channel: str | None = None
-    thumbnail_url: str | None = None
-    url: str
+    name: str = Field(min_length=1, max_length=64)
 
 
-# A video and its speakers are the factory's own facts, so this service passes
-# both through exactly as the factory shapes them. There is no model here on
-# purpose: a field the factory adds must reach the browser with no edit in this
-# repository, which a model would silently drop.
+class VoiceContribution(BaseModel):
+    """One speaker, committed into one voice.
 
+    The audit trail Story 3.2 introduces (FR19): every row traces back to the
+    run and video that produced it. Append-only - see
+    repositories/voice_contributions.py.
 
-class VoiceRunRequest(BaseModel):
-    """Start a run against one video."""
-
-    # the dataset every unmapped speaker's clips land in
-    primary_character: str = Field(min_length=1, max_length=64)
-    source_url: str = Field(min_length=1)
-    diarize: bool = True
-    num_speakers: int | None = Field(default=None, ge=1, le=20)
-    whisper_model: str | None = None
-    min_clip_duration: float | None = Field(default=None, gt=0)
-    max_clip_duration: float | None = Field(default=None, gt=0)
-
-
-class VoiceRun(BaseModel):
-    """One run's complete state.
-
-    This is what the browser sees, so the lease columns are deliberately absent:
-    they belong to the reconciler's mutual exclusion, not to the run. See
-    VoiceRunRepository.claim_runs.
+    Only voice_id and speaker_id are stored. run_id, video_id and
+    speaker_label all come from the speaker's own row, joined at read time -
+    the association itself is id to id.
     """
 
     id: str
-    primary_character: str
-    source_url: str
-    # the only join to the factory, which owns the video itself: its title,
-    # its clips, and which speaker each clip belongs to
+    voice_id: str
+    speaker_id: str
+    run_id: str
     video_id: str | None = None
-    phase: VoiceRunPhase
-    diarize: bool = True
-    num_speakers: int | None = None
-    # speaker label -> Voice id. This is DB-only and Voice-ID-scoped, and the
-    # factory has no Voice concept, so nothing there mirrors it. Set by
-    # POST .../assign, which stores this mapping and commits it - contribution
-    # rows and phase change - in the same call.
-    # Speaker label -> Voice id, for the review screen. Derived, not stored:
-    # the rows in voice_contributions are the record, and this is a projection
-    # of them built when a run is read. Writing to it does nothing - see
-    # POST /runs/{id}/assign.
-    voice_assignments: dict[str, str | None] = Field(default_factory=dict)
+    # not stored: the factory owns the title, so a reader resolves it from
+    # video_id at read time -- see core/video_titles.py. None when the factory
+    # is unset or no longer holds that video.
+    video_title: str | None = None
+    # the factory's label for the speaker, carried for display only. Nothing
+    # joins on it.
+    speaker_label: str
+    created_at: datetime
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def strip_timezone(cls, v: datetime) -> datetime:
+        if v.tzinfo is not None:
+            return v.replace(tzinfo=None)
+        return v
+
+
+class Voice(BaseModel):
+    """One voice's complete state.
+
+    contributions is always empty until an assign call creates a
+    contribution row for this voice.
+    """
+
+    id: str
+    name: str
+    phase: VoicePhase
+    checkpoint_path: str | None = None
+    # the control API job backing the current phase, if one is running.
+    # Mirrors VoiceRun.voyicer_job_id: durable, so a restart mid-training
+    # resumes polling the same job instead of starting a second one.
     voyicer_job_id: str | None = None
-    # which of DOWNLOADING's ordered ingest steps is in flight
-    ingest_stage_index: int = 0
-    # which of COMMITTING's three ordered stages is in flight
-    commit_stage_index: int = 0
-    # last training progress the factory reported, over the webhook
-    current_epoch: int | None = None
-    current_loss: float | None = None
-    error: str | None = None
-    # consecutive transient factory errors. A successful call resets it, and
-    # only VOICE_MAX_CONSECUTIVE_ERRORS in a row fails the run.
-    error_count: int = 0
-    # the phase a failed run was in when it failed, so a retry can resume there
-    failed_from_phase: VoiceRunPhase | None = None
-    # the job that failed. Its log is the only record of why, so it outlives
-    # voyicer_job_id, which is cleared to stop the next tick polling a dead job.
-    failed_job_id: str | None = None
+    contributions: list[VoiceContribution] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -130,139 +106,31 @@ class VoiceRun(BaseModel):
         return v
 
 
-class VoiceRunResponse(BaseModel):
-    """Acknowledgement for a newly started run."""
+class VoiceResponse(BaseModel):
+    """Acknowledgement for a newly created voice."""
 
     id: str
-    phase: VoiceRunPhase
+    phase: VoicePhase
 
 
-class ClipSummary(BaseModel):
-    clip_id: str
-    keep: bool
-    quality_score: float | None = None
-    flagged: bool = False
-    speaker_label: str | None = None
-    speaker_coverage: float | None = None
-    # Who this clip is for, chosen per clip by the reviewer. speaker_label is
-    # what diarization heard; this is the decision made about it.
-    assigned_voice: str | None = None
-    duration_sec: float | None = None
-    start_sec: float | None = None
-    end_sec: float | None = None
-    text: str = ""
+class RunAssignRequest(BaseModel):
+    """Map a run's speaker labels to Voice ids and commit immediately.
 
-
-class VideoClips(BaseModel):
-    """One video's clips and its speaker map, as the factory returns them.
-
-    The two arrive in the same payload, so they are read together. The map
-    says which character each speaker label belongs to, and the factory owns
-    it - speaker_map.json beside the clips is the one copy.
+    A voice id of None discards that speaker, same meaning as
+    speaker_map's None. One call writes the mapping, creates one
+    voice_contributions row per assigned speaker, and advances the run to
+    COMMITTED - there is no separate draft state, so a repeat call on an
+    already-committed run is rejected (409), unlike the old two-step flow's
+    assign, which could be called more than once.
     """
 
-    video_id: str
-    # speaker label -> character name. None discards that speaker's clips.
-    speaker_map: dict[str, str | None] = Field(default_factory=dict)
-    clips: list[ClipSummary] = Field(default_factory=list)
+    assignments: dict[str, str | None]
 
 
-class SpeakerGroup(BaseModel):
-    """Every clip pyannote attributed to one speaker.
-
-    speaker_label is None for the rejected group: clips no single speaker holds,
-    which means cross-talk or music.
-    """
-
-    speaker_label: str | None
-    assigned_character: str | None = None
-    clip_count: int
-    kept_count: int
-    total_duration_sec: float
-    clips: list[ClipSummary] = Field(default_factory=list)
-
-
-class SpeakerBoard(BaseModel):
-    """Clips grouped by speaker, for the review screen.
-
-    Keyed on the video, because the clips are. run_id is None for a video no
-    run has claimed yet, which a second character browsing an already
-    ingested video is looking at.
-    """
-
-    video_id: str
-    run_id: str | None = None
-    speakers: list[SpeakerGroup] = Field(default_factory=list)
-
-
-class ClipDecision(BaseModel):
-    clip_id: str
-    keep: bool | None = None
-    speaker_label: str | None = None
-    text: str | None = None
-
-
-class SpeakerAssignmentRequest(BaseModel):
-    """Approve the review and start training.
-
-    Maps each speaker label to a character. A label mapped to None is discarded.
-    """
-
-    speaker_map: dict[str, str | None]
-
-
-class CheckpointSummary(BaseModel):
-    path: str
-    name: str
-    epoch: int | None = None
-    step: int | None = None
-    modified_at: datetime | None = None
-
-
-class TrainingProgress(BaseModel):
-    character: str
-    preprocessed: bool = False
-    running_job_id: str | None = None
-    current_epoch: int | None = None
-    current_loss: float | None = None
-    checkpoints: list[CheckpointSummary] = Field(default_factory=list)
-
-
-class JobLog(BaseModel):
-    offset: int
-    content: str
-    state: str
-
-
-class VoiceLogChunk(BaseModel):
-    """New job-log content, pushed as it is produced."""
+class RunAssignResponse(BaseModel):
+    """What one assign call did: the mapping stored and the contribution
+    rows it created in the same request."""
 
     run_id: str
-    job_id: str
-    offset: int
-    content: str
-
-
-class VoiceWebhookEventType(StrEnum):
-    """What the factory is reporting."""
-
-    STARTED = "started"
-    PROGRESS = "progress"
-    FINISHED = "finished"
-
-
-class VoiceWebhookEvent(BaseModel):
-    """What the voice factory posts when one of its jobs changes.
-
-    Deliberately small. It says which job changed and what the factory saw; it
-    never says what phase the run should move to. The reconciler decides that,
-    by asking the factory itself.
-    """
-
-    job_id: str
-    type: VoiceWebhookEventType
-    # present on a progress event during training
-    epoch: int | None = None
-    loss: float | None = None
-    # present on a finished event: the factory's own job state
-    state: str | None = None
+    voice_assignments: dict[str, str | None]
+    contributions: list[VoiceContribution] = Field(default_factory=list)

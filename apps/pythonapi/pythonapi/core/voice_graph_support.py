@@ -1,6 +1,6 @@
 """Tick-bookkeeping helpers shared by the two voice LangGraph pipelines.
 
-voice_pipeline_graph.py advances a VoiceRun; voice_training_graph.py advances
+voice_run_graph.py advances a VoiceRun; voice_training_graph.py advances
 a Voice. Both walk one phase per tick with no LangGraph checkpointer - the
 row is the durable state - and both build their tick's return dict under a
 different key ("run" vs "voice"), which state_key threads through below.

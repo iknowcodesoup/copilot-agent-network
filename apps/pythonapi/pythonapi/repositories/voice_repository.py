@@ -16,7 +16,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from pythonapi.models.orm import VoiceRow
-from pythonapi.models.voices import RESTING_PHASES, Voice, VoicePhase
+from pythonapi.models.voice import RESTING_PHASES, Voice, VoicePhase
 from pythonapi.repositories.base import lease_is_free, resting_phase_values, utc_now
 
 

@@ -23,7 +23,7 @@ from pythonapi.core.voice_agent_tools import (
 from pythonapi.core.voice_factory_gateway import VoiceFactoryError
 from pythonapi.dependencies import get_voice_tool_registry
 from pythonapi.main import app
-from pythonapi.models.voice import VideoResult
+from pythonapi.models.voice_run import VideoResult
 from pythonapi.repositories.voice_runs import InMemoryVoiceRunRepository
 
 FRONTEND_TOOL_NAME = "confirm_action"

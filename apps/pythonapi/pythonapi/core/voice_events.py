@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
-from pythonapi.models.voice import VoiceLogChunk, VoiceRun
+from pythonapi.models.voice_run import VoiceLogChunk, VoiceRun
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ from pythonapi.core.voice_factory_gateway import (
     VoiceFactoryError,
     VoiceFactoryTransientError,
 )
-from pythonapi.core.voice_pipeline_graph import (
+from pythonapi.core.voice_run_graph import (
     build_voice_pipeline_graph,
     ingest_stages_for,
 )
@@ -42,7 +42,8 @@ from pythonapi.models.orm import (
     VoiceRunRow,
     VoiceRunSpeakerRow,
 )
-from pythonapi.models.voice import (
+from pythonapi.models.voice import VoiceContribution
+from pythonapi.models.voice_run import (
     ClipSummary,
     TrainingProgress,
     VideoClips,
@@ -50,7 +51,6 @@ from pythonapi.models.voice import (
     VoiceRun,
     VoiceRunPhase,
 )
-from pythonapi.models.voices import VoiceContribution
 from pythonapi.repositories.voice_contributions import (
     InMemoryVoiceContributionRepository,
 )

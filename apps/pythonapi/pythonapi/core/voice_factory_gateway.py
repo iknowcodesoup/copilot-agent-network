@@ -27,7 +27,7 @@ from tenacity import (
 )
 
 from pythonapi.config import settings
-from pythonapi.models.voice import (
+from pythonapi.models.voice_run import (
     ClipSummary,
     TrainingProgress,
     VideoClips,

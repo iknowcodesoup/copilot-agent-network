@@ -17,8 +17,8 @@ import uuid
 
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.core.voice_training_graph import VoiceTrainingState
-from pythonapi.models.voices import Voice, VoicePhase
-from pythonapi.repositories.voices import VoiceRepository
+from pythonapi.models.voice import Voice, VoicePhase
+from pythonapi.repositories.voice_repository import VoiceRepository
 
 logger = logging.getLogger(__name__)
 

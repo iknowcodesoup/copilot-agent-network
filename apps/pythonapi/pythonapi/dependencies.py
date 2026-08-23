@@ -25,8 +25,8 @@ from pythonapi.repositories.base import DocumentRepository
 from pythonapi.repositories.orders import OrderRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
+from pythonapi.repositories.voice_repository import VoiceRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
-from pythonapi.repositories.voices import VoiceRepository
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
 from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler

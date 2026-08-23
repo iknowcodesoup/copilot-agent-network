@@ -4,7 +4,7 @@ import pytest
 
 from pythonapi.dependencies import get_required_voice_repository
 from pythonapi.main import app
-from pythonapi.repositories.voices import InMemoryVoiceRepository
+from pythonapi.repositories.voice_repository import InMemoryVoiceRepository
 
 
 @pytest.fixture

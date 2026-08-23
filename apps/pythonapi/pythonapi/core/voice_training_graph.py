@@ -1,6 +1,6 @@
 """LangGraph that advances one voice by one phase, toward a trained model.
 
-Mirrors voice_pipeline_graph.py's shape exactly - stateless, one node per
+Mirrors voice_run_graph.py's shape exactly - stateless, one node per
 tick, the durable state is the `voices.phase` column (and voyicer_job_id)
 rather than a checkpointer - but it is its own graph, its own lease, and
 its own failure domain (FR21): only the tick-bookkeeping mechanics that are
@@ -12,7 +12,7 @@ contributed clips to it.
 A node never fails a voice for an unreachable factory. Training runs for
 days and the GPU host can reboot inside that, so a transient error comes
 back as `transient_error` and the phase stays put - same contract as
-voice_pipeline_graph.py, decided by VoiceTrainingReconciler the same way.
+voice_run_graph.py, decided by VoiceTrainingReconciler the same way.
 """
 
 import logging
@@ -26,7 +26,7 @@ from pythonapi.core.voice_graph_support import (
     route_by_phase,
     training_node_factory,
 )
-from pythonapi.models.voices import Voice, VoicePhase
+from pythonapi.models.voice import Voice, VoicePhase
 
 logger = logging.getLogger(__name__)
 

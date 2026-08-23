@@ -19,13 +19,13 @@ from pythonapi.dependencies import (
     get_voice_factory_gateway,
 )
 from pythonapi.main import app
-from pythonapi.models.voice import VoiceRun, VoiceRunPhase
-from pythonapi.models.voices import Voice, VoicePhase
+from pythonapi.models.voice import Voice, VoicePhase
+from pythonapi.models.voice_run import VoiceRun, VoiceRunPhase
 from pythonapi.repositories.voice_contributions import (
     InMemoryVoiceContributionRepository,
 )
+from pythonapi.repositories.voice_repository import InMemoryVoiceRepository
 from pythonapi.repositories.voice_runs import InMemoryVoiceRunRepository
-from pythonapi.repositories.voices import InMemoryVoiceRepository
 
 
 def make_run(phase: VoiceRunPhase, **overrides) -> VoiceRun:

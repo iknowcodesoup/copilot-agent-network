@@ -44,7 +44,7 @@ from pythonapi.core.voice_graph_support import (
     route_by_phase,
     training_node_factory,
 )
-from pythonapi.models.voice import VoiceRun, VoiceRunPhase
+from pythonapi.models.voice_run import VoiceRun, VoiceRunPhase
 
 logger = logging.getLogger(__name__)
 

@@ -29,8 +29,8 @@ import uuid
 
 from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryError, VoiceFactoryGateway
-from pythonapi.core.voice_pipeline_graph import VoiceRunState
-from pythonapi.models.voice import VoiceRun, VoiceRunPhase
+from pythonapi.core.voice_run_graph import VoiceRunState
+from pythonapi.models.voice_run import VoiceRun, VoiceRunPhase
 from pythonapi.repositories.voice_runs import VoiceRunRepository
 
 logger = logging.getLogger(__name__)

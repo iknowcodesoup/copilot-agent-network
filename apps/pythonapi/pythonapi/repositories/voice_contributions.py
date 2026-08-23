@@ -1,6 +1,6 @@
 """Persistence for run speakers and voice contributions (Story 3.2).
 
-Same shape as repositories/voices.py: a Protocol contract, an in-memory
+Same shape as repositories/voice_repository.py: a Protocol contract, an in-memory
 double for tests, and a Postgres implementation that opens its own session
 per method. voice_contributions is append-only, so this repository offers no
 update method - only create_contribution and read queries.
@@ -24,7 +24,7 @@ from pythonapi.models.orm import (
     VoiceRunRow,
     VoiceRunSpeakerRow,
 )
-from pythonapi.models.voices import VoiceContribution
+from pythonapi.models.voice import VoiceContribution
 
 
 class VoiceContributionRepository(Protocol):

@@ -8,7 +8,7 @@ other caller cannot drift into two different boards over the same clips.
 
 from collections import defaultdict
 
-from pythonapi.models.voice import (
+from pythonapi.models.voice_run import (
     ClipSummary,
     SpeakerBoard,
     SpeakerGroup,

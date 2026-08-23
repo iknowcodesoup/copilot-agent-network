@@ -24,13 +24,13 @@ from pythonapi.dependencies import (
     get_voice_training_reconciler,
 )
 from pythonapi.main import app
-from pythonapi.models.voice import VoiceRun, VoiceRunPhase
-from pythonapi.models.voices import Voice, VoicePhase
+from pythonapi.models.voice import Voice, VoicePhase
+from pythonapi.models.voice_run import VoiceRun, VoiceRunPhase
 from pythonapi.repositories.voice_contributions import (
     InMemoryVoiceContributionRepository,
 )
+from pythonapi.repositories.voice_repository import InMemoryVoiceRepository
 from pythonapi.repositories.voice_runs import InMemoryVoiceRunRepository
-from pythonapi.repositories.voices import InMemoryVoiceRepository
 from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 INTERVAL_SECONDS = 3600.0  # long enough that tests only ever drive tick()/wake()

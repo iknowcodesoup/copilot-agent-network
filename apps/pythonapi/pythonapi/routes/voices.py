@@ -18,9 +18,9 @@ from pythonapi.dependencies import (
     get_required_voice_training_reconciler,
     get_voice_factory_gateway,
 )
-from pythonapi.models.voices import Voice, VoicePhase, VoiceRequest, VoiceResponse
+from pythonapi.models.voice import Voice, VoicePhase, VoiceRequest, VoiceResponse
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
-from pythonapi.repositories.voices import VoiceRepository
+from pythonapi.repositories.voice_repository import VoiceRepository
 from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 router = APIRouter(prefix="/voices", tags=["Voices"])

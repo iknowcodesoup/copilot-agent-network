@@ -37,6 +37,11 @@ from pythonapi.dependencies import (
     get_voice_factory_gateway,
 )
 from pythonapi.models.voice import (
+    RunAssignRequest,
+    RunAssignResponse,
+    VoiceContribution,
+)
+from pythonapi.models.voice_run import (
     JobLog,
     SpeakerAssignmentRequest,
     SpeakerBoard,
@@ -48,14 +53,9 @@ from pythonapi.models.voice import (
     VoiceRunResponse,
     VoiceWebhookEvent,
 )
-from pythonapi.models.voices import (
-    RunAssignRequest,
-    RunAssignResponse,
-    VoiceContribution,
-)
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
+from pythonapi.repositories.voice_repository import VoiceRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
-from pythonapi.repositories.voices import VoiceRepository
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
 
 router = APIRouter(prefix="/voice", tags=["Voice"])

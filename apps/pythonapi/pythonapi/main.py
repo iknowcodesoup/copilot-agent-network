@@ -28,7 +28,7 @@ from pythonapi.core.reranking import CrossEncoderReranker, LexicalOverlapReranke
 from pythonapi.core.voice_agent_tools import VoiceToolRegistry
 from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
-from pythonapi.core.voice_pipeline_graph import build_voice_pipeline_graph
+from pythonapi.core.voice_run_graph import build_voice_pipeline_graph
 from pythonapi.core.voice_training_graph import build_voice_training_graph
 from pythonapi.infrastructure.langfuse_client import (
     build_langfuse_client,
@@ -65,13 +65,13 @@ from pythonapi.repositories.voice_contributions import (
     InMemoryVoiceContributionRepository,
     PostgresVoiceContributionRepository,
 )
+from pythonapi.repositories.voice_repository import (
+    InMemoryVoiceRepository,
+    PostgresVoiceRepository,
+)
 from pythonapi.repositories.voice_runs import (
     InMemoryVoiceRunRepository,
     PostgresVoiceRunRepository,
-)
-from pythonapi.repositories.voices import (
-    InMemoryVoiceRepository,
-    PostgresVoiceRepository,
 )
 from pythonapi.routes import (
     agent,
