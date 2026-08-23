@@ -6,6 +6,11 @@ from pythonapi.config import Settings
 
 # Secrets have no safe default. The rest are optional integrations where None
 # means "off". See the Settings docstring.
+#
+# The two *_AGENT_A2A_URL entries are a third, narrower case: None means the
+# specialist is mounted in this process, so the Orchestrator reaches it over an
+# in-process transport instead of a URL. A default URL here would point at a
+# port nothing listens on in the default single-process topology.
 MAY_BE_NONE = frozenset(
     {
         "LANGFUSE_HOST",
@@ -18,6 +23,8 @@ MAY_BE_NONE = frozenset(
         "POSTGRES_URL",
         "QDRANT_API_KEY",
         "REDIS_URL",
+        "RESEARCH_AGENT_A2A_URL",
+        "VOICE_AGENT_A2A_URL",
         "VOICE_FACTORY_URL",
         "VOICE_WEBHOOK_TOKEN",
     }

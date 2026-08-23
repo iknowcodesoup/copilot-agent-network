@@ -82,6 +82,64 @@ class Settings(BaseSettings):
     # a proxy in the middle does not close it.
     VOICE_EVENT_HEARTBEAT_SECONDS: float = 15.0
 
+    # --- Multi-agent A2A -------------------------------------------------
+    # The two specialists are mounted inside this process by default, so the
+    # whole network runs with one `nx serve pythonapi` and no extra ports.
+    # Turn a mount off only when that agent runs as its own process.
+    RESEARCH_AGENT_MOUNTED: bool = True
+    VOICE_AGENT_MOUNTED: bool = True
+
+    # Where the mounted specialists answer. Each agent's card is published at
+    # <mount path>/.well-known/agent-card.json.
+    RESEARCH_AGENT_MOUNT_PATH: str = "/agents/research"
+    VOICE_AGENT_MOUNT_PATH: str = "/agents/voice"
+
+    # A remote specialist, when one runs separately. Unset, the Orchestrator
+    # talks to the mounted agent over an in-process ASGI transport - still a
+    # real A2A JSON-RPC exchange, just without a network hop. Set it and the
+    # Orchestrator calls that URL over HTTP instead, with nothing else
+    # changing. This is the whole of the in-process/remote switch.
+    RESEARCH_AGENT_A2A_URL: str | None = None
+    VOICE_AGENT_A2A_URL: str | None = None
+
+    # Host and port for `python -m pythonapi.agents.research` (and .voice).
+    # Unused while the agent is mounted.
+    RESEARCH_AGENT_HOST: str = "0.0.0.0"
+    RESEARCH_AGENT_PORT: int = 8001
+    VOICE_AGENT_HOST: str = "0.0.0.0"
+    VOICE_AGENT_PORT: int = 8002
+
+    # This service's own base URL, used to build the `url` a mounted agent
+    # publishes in its card. A card must advertise where a caller can reach
+    # the agent, which this process cannot infer from a request it has not
+    # received yet.
+    PUBLIC_BASE_URL: str = "http://localhost:8000"
+
+    # How many chunks the research skill retrieves per question. Matches the
+    # /search route's own default so both read the corpus the same way.
+    RESEARCH_AGENT_TOP_K: int = 5
+
+    # A delegated task that has not reached a terminal state by now is
+    # treated as a specialist failure, so one hung agent cannot hold an AG-UI
+    # stream open indefinitely (CAP-5: failures stay isolated).
+    A2A_TASK_TIMEOUT_SECONDS: float = 60.0
+
+    @property
+    def research_agent_public_url(self) -> str:
+        """Where the Research Agent's card says it can be reached."""
+        return _rpc_endpoint(
+            self.RESEARCH_AGENT_A2A_URL
+            or f"{self.PUBLIC_BASE_URL.rstrip('/')}{self.RESEARCH_AGENT_MOUNT_PATH}"
+        )
+
+    @property
+    def voice_agent_public_url(self) -> str:
+        """Where the Voice Agent's card says it can be reached."""
+        return _rpc_endpoint(
+            self.VOICE_AGENT_A2A_URL
+            or f"{self.PUBLIC_BASE_URL.rstrip('/')}{self.VOICE_AGENT_MOUNT_PATH}"
+        )
+
     # Vector store for chunk embeddings only - no document/order metadata
     # lives here. ":memory:" runs Qdrant embedded, in-process.
     QDRANT_URL: str = ":memory:"
@@ -174,6 +232,17 @@ class Settings(BaseSettings):
     # silently pick up an unrelated .env from wherever the process happens
     # to be launched from.
     model_config = SettingsConfigDict(extra="ignore")
+
+
+def _rpc_endpoint(url: str) -> str:
+    """Normalize an agent's base URL to the exact JSON-RPC endpoint.
+
+    The trailing slash is load-bearing. The SDK serves JSON-RPC at the mount
+    root, and Starlette answers the slashless form with a 307 to the slashed
+    one. The A2A client does not follow redirects, so a card advertising
+    ".../agents/research" makes every delegated call fail on the redirect.
+    """
+    return url.rstrip("/") + "/"
 
 
 settings = Settings()

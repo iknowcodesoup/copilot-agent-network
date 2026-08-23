@@ -16,6 +16,7 @@ from limits.aio.strategies import MovingWindowRateLimiter
 from limits.storage import storage_from_string
 from openai import AsyncOpenAI
 
+from pythonapi.agents.research.app import mount_research_agent
 from pythonapi.config import settings
 from pythonapi.core.document_parsing import (
     build_document_converter,
@@ -390,7 +391,9 @@ async def lifespan(app: FastAPI):
                 reconciler_resource(
                     VoiceRunReconciler(
                         repository=app.state.voice_run_repository,
-                        graph=build_voice_pipeline_graph(app.state.voice_factory_gateway),
+                        graph=build_voice_pipeline_graph(
+                            app.state.voice_factory_gateway
+                        ),
                         interval_seconds=settings.VOICE_RECONCILE_INTERVAL_SECONDS,
                         event_stream=app.state.voice_event_stream,
                         lease_seconds=settings.VOICE_LEASE_SECONDS,
@@ -455,3 +458,11 @@ api_router.include_router(voice_factory_proxy.router)
 api_router.include_router(voices.router)
 
 app.include_router(api_router)
+
+# The specialists mount outside /api on purpose. They are not this service's
+# REST surface - they are separate agents that happen to share the process,
+# each serving its own Agent Card at <mount>/.well-known/agent-card.json.
+# Turning a mount off is how that agent moves to its own process; nothing
+# else in this file changes.
+if settings.RESEARCH_AGENT_MOUNTED:
+    mount_research_agent(app)
