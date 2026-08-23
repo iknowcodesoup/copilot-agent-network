@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 
 from pythonapi.config import settings
 from pythonapi.routes.proxy_headers import copy_headers
+from pythonapi.routes.voice_route_support import unavailable
 
 router = APIRouter(prefix="/voice-factory", tags=["Voice Factory"])
 
@@ -92,10 +93,7 @@ async def proxy_voice_factory_request(request: Request, upstream_path: str) -> R
         upstream_response = await client.send(upstream, stream=True)
     except httpx.HTTPError as error:
         await client.aclose()
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            f"The voice factory did not answer: {error}",
-        ) from error
+        raise unavailable(error) from error
 
     response_headers = copy_headers(
         upstream_response.headers.items(), _RESPONSE_HEADER_BLOCKLIST
