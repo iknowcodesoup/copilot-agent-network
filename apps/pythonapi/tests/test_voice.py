@@ -59,7 +59,7 @@ from pythonapi.repositories.voice_runs import (
     _row_from_run,
     _run_from_row,
 )
-from pythonapi.routes.voice import get_voice_events
+from pythonapi.routes.voice_events import get_voice_events
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
 
 MAX_ERRORS = 3

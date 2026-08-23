@@ -80,8 +80,11 @@ from pythonapi.routes import (
     openai_proxy,
     orders,
     search,
-    voice,
+    voice_events,
     voice_factory_proxy,
+    voice_jobs,
+    voice_runs,
+    voice_videos,
     voices,
 )
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
@@ -444,7 +447,10 @@ api_router.include_router(documents.router)
 api_router.include_router(search.router)
 api_router.include_router(openai_proxy.router)
 api_router.include_router(agent.router)
-api_router.include_router(voice.router)
+api_router.include_router(voice_videos.router)
+api_router.include_router(voice_runs.router)
+api_router.include_router(voice_jobs.router)
+api_router.include_router(voice_events.router)
 api_router.include_router(voice_factory_proxy.router)
 api_router.include_router(voices.router)
 

@@ -22,9 +22,6 @@ export const voiceApiBase = `${pythonApiUrl}/api/voice`;
  */
 export const voiceFactoryBase = `${pythonApiUrl}/api/voice-factory`;
 
-/*
- * The durable Voice entity lives under its own router (routes/voices.py,
- * plural), a sibling of the run-pipeline router (routes/voice.py, singular).
- * Same host, different path, so it needs its own base.
- */
+/* The durable Voice entity lives under its own router (routes/voices.py), a
+   sibling of the run-pipeline routers. Same host, different path. */
 export const voicesApiBase = `${pythonApiUrl}/api/voices`;

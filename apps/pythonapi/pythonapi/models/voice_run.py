@@ -29,7 +29,7 @@ class VoiceRunPhase(StrEnum):
     FAILED = "failed"
     # A run whose speaker->voice assignment has been turned into
     # voice_contributions rows. Terminal, like READY/FAILED, but reached
-    # through routes/voice.py's assign_run rather than the reconciler.
+    # through routes/voice_runs.py's assign_run rather than the reconciler.
     COMMITTED = "committed"
 
 
