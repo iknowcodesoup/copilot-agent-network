@@ -1,6 +1,29 @@
+from datetime import UTC, datetime
 from typing import Protocol
 
 from pythonapi.models.documents import Chunk, Document
+
+
+def utc_now() -> datetime:
+    """Now, as naive UTC.
+
+    Every datetime in a lease-bearing repository comes from here. The
+    Postgres columns are TIMESTAMP WITHOUT TIME ZONE, so a stored value is
+    always naive, and Python refuses to compare a naive datetime against an
+    aware one. One helper is what keeps a single aware value from reaching a
+    comparison.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def resting_phase_values(resting_phases) -> list[str]:
+    return [phase.value for phase in resting_phases]
+
+
+def lease_is_free(leased_until_column):
+    """No one holds this row, or whoever did has gone away."""
+    now = utc_now()
+    return (leased_until_column.is_(None)) | (leased_until_column < now)
 
 
 class DocumentRepository(Protocol):

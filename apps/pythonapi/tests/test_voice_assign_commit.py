@@ -308,9 +308,7 @@ async def test_commit_advances_an_assigned_run_to_committed(
 
 
 @pytest.mark.asyncio
-async def test_commit_rejects_a_run_with_no_assignments(
-    assign_client, run_repository
-):
+async def test_commit_rejects_a_run_with_no_assignments(assign_client, run_repository):
     await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
 
     response = assign_client.post("/api/voice/runs/run1/commit")

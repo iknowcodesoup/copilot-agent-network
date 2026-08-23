@@ -293,9 +293,7 @@ async def assign_run(
         if voice_id is not None
     }
     if not assigned_speakers:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Assign at least one speaker"
-        )
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Assign at least one speaker")
 
     titles = await resolve_video_titles(gateway, [run.video_id])
 
@@ -352,9 +350,7 @@ async def commit_run(
     calls POST /voices/{id}/train, per voice, from the training panel.
     """
     run = await _require_awaiting_review(repository, run_id)
-    if not any(
-        voice_id is not None for voice_id in run.voice_assignments.values()
-    ):
+    if not any(voice_id is not None for voice_id in run.voice_assignments.values()):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Assign at least one speaker before committing",

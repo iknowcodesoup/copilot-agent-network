@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useDeleteVideo } from "@/lib/voice_api";
 import type { VideoSummary, VoiceRunPhase } from "@/lib/types";
+import { toneForPhase } from "@/features/voices/derive";
 
 /*
  * Watch, Delete, and room for whatever comes next - one overflow menu rather
@@ -72,15 +73,6 @@ function VideoCardMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-function toneForPhase(
-  phase: VoiceRunPhase,
-): "in-progress" | "complete" | "failed" | "queued" {
-  if (phase === "failed") return "failed";
-  if (phase === "ready") return "complete";
-  if (phase === "awaiting_review") return "queued";
-  return "in-progress";
 }
 
 /* The video describes itself, counts included: they come from the factory,

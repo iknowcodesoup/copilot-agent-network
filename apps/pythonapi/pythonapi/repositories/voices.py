@@ -9,7 +9,7 @@ would start the same factory training job twice. claim_voices takes
 ownership in a single atomic UPDATE, so the database decides who wins.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from sqlalchemy import select, update
@@ -17,17 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from pythonapi.models.orm import VoiceRow
 from pythonapi.models.voices import RESTING_PHASES, Voice, VoicePhase
-
-
-def _utc_now() -> datetime:
-    """Now, as naive UTC.
-
-    Every datetime in this file comes from here. The Postgres columns are
-    TIMESTAMP WITHOUT TIME ZONE, so a stored value is always naive, and Python
-    refuses to compare a naive datetime against an aware one. One helper is
-    what keeps a single aware value from reaching a comparison.
-    """
-    return datetime.now(UTC).replace(tzinfo=None)
+from pythonapi.repositories.base import lease_is_free, resting_phase_values, utc_now
 
 
 class VoiceRepository(Protocol):
@@ -133,17 +123,17 @@ class InMemoryVoiceRepository:
     async def update_voice(self, voice: Voice) -> bool:
         if voice.id not in self._voices:
             return False
-        voice.updated_at = _utc_now()
+        voice.updated_at = utc_now()
         self._voices[voice.id] = voice.model_copy(deep=True)
         return True
 
     def _is_held(self, voice_id: str) -> bool:
         lease = self._leases.get(voice_id)
-        return lease is not None and lease[0] > _utc_now()
+        return lease is not None and lease[0] > utc_now()
 
     def _take_lease(self, voice_id: str, owner: str, lease_seconds: float) -> None:
         self._leases[voice_id] = (
-            _utc_now() + timedelta(seconds=lease_seconds),
+            utc_now() + timedelta(seconds=lease_seconds),
             owner,
         )
 
@@ -193,7 +183,10 @@ class PostgresVoiceRepository:
         """
         claimable = (
             select(VoiceRow.id)
-            .where(VoiceRow.phase.not_in(_resting_phase_values()), _lease_is_free())
+            .where(
+                VoiceRow.phase.not_in(resting_phase_values(RESTING_PHASES)),
+                lease_is_free(VoiceRow.leased_until),
+            )
             .order_by(VoiceRow.created_at)
             .limit(limit)
             .scalar_subquery()
@@ -224,14 +217,14 @@ class PostgresVoiceRepository:
         into plain Voice copies, and only then committed. Reading them after
         the session closed would hand back detached rows.
         """
-        expiry = _utc_now() + timedelta(seconds=lease_seconds)
+        expiry = utc_now() + timedelta(seconds=lease_seconds)
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 update(VoiceRow)
                 .where(
                     voice_filter,
-                    VoiceRow.phase.not_in(_resting_phase_values()),
-                    _lease_is_free(),
+                    VoiceRow.phase.not_in(resting_phase_values(RESTING_PHASES)),
+                    lease_is_free(VoiceRow.leased_until),
                 )
                 .values(leased_until=expiry, lease_owner=owner)
                 .returning(VoiceRow)
@@ -249,19 +242,9 @@ class PostgresVoiceRepository:
             row.phase = voice.phase.value
             row.checkpoint_path = voice.checkpoint_path
             row.voyicer_job_id = voice.voyicer_job_id
-            row.updated_at = _utc_now()
+            row.updated_at = utc_now()
             await session.commit()
             return True
-
-
-def _resting_phase_values() -> list[str]:
-    return [phase.value for phase in RESTING_PHASES]
-
-
-def _lease_is_free():
-    """No one holds this voice, or whoever did has gone away."""
-    now = _utc_now()
-    return (VoiceRow.leased_until.is_(None)) | (VoiceRow.leased_until < now)
 
 
 def _row_from_voice(voice: Voice) -> VoiceRow:

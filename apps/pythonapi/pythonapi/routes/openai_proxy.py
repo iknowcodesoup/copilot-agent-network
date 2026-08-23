@@ -1,9 +1,8 @@
-from collections.abc import Iterable
-
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from pythonapi.config import settings
+from pythonapi.routes.proxy_headers import copy_headers
 
 router = APIRouter(prefix="/v1", tags=["OpenAI Compatible"])
 
@@ -25,15 +24,9 @@ def _build_upstream_url(path: str) -> str:
     return f"{settings.LLM_BASE_URL.rstrip('/')}/{path.lstrip('/')}"
 
 
-def _copy_headers(
-    headers: Iterable[tuple[str, str]], blocked: set[str]
-) -> dict[str, str]:
-    return {key: value for key, value in headers if key.lower() not in blocked}
-
-
 async def _forward_request(request: Request, upstream_path: str) -> Response:
     body = await request.body()
-    headers = _copy_headers(request.headers.items(), _REQUEST_HEADER_BLOCKLIST)
+    headers = copy_headers(request.headers.items(), _REQUEST_HEADER_BLOCKLIST)
     if not settings.LLM_BASE_URL:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -59,7 +52,7 @@ async def _forward_request(request: Request, upstream_path: str) -> Response:
             detail=f"OpenAI upstream request failed: {exc}",
         ) from exc
 
-    response_headers = _copy_headers(
+    response_headers = copy_headers(
         upstream_response.headers.items(), _RESPONSE_HEADER_BLOCKLIST
     )
     media_type = upstream_response.headers.get("content-type")

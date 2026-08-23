@@ -13,7 +13,8 @@ mechanics that really are identical live here.
 """
 
 import logging
-from typing import Any, Callable, Protocol, TypeVar
+from collections.abc import Callable
+from typing import Any, Protocol, TypeVar
 
 from pythonapi.core.voice_factory_gateway import (
     JOB_STATE_CANCELLED,
@@ -86,7 +87,9 @@ async def poll_job(
     if state == JOB_STATE_SUCCEEDED:
         return advance(entity, next_phase, state_key)
     if state in (JOB_STATE_FAILED, JOB_STATE_CANCELLED):
-        return fail(entity, f"Job {entity.voyicer_job_id} {state}. See its log for detail.")
+        return fail(
+            entity, f"Job {entity.voyicer_job_id} {state}. See its log for detail."
+        )
     return fail(entity, f"Job {entity.voyicer_job_id} reported unknown state {state!r}")
 
 

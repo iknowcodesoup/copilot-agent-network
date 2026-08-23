@@ -2,6 +2,7 @@
 
 import { Observable, defer, filter, map, retry, share, timer } from "rxjs";
 import { voiceApiBase } from "./voice_endpoints";
+import { convertKeys, toCamelCase } from "./voice_api";
 
 /*
  * The observable layer.
@@ -40,26 +41,13 @@ export interface AgentUiEvent {
 
 /*
  * FastAPI speaks snake_case and this app speaks camelCase, the same conversion
- * every response in voice_api.ts gets. The stream carries the same shapes, so
- * it needs the same conversion.
+ * every response in voice_api.ts gets - including its DATA_KEYED_MAPS guard,
+ * which keeps a speaker label like SPEAKER_00 from being rewritten to
+ * SPEAKER00. The stream carries the same shapes (full VoiceRun objects), so
+ * it needs the same conversion, not a second one that can drift from it.
  */
-function toCamelCase(value: string): string {
-  return value.replace(/_([a-z0-9])/g, (_, character: string) =>
-    character.toUpperCase(),
-  );
-}
-
-export function convertKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map((item) => convertKeys(item));
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
-        toCamelCase(key),
-        convertKeys(entry),
-      ]),
-    );
-  }
-  return value;
+function toCamelKeys(value: unknown): unknown {
+  return convertKeys(value, toCamelCase);
 }
 
 /*
@@ -129,7 +117,7 @@ export const runSnapshots$ = voiceEvents$.pipe(
     event.type === SNAPSHOT_EVENT_TYPE ? event.snapshot?.runs : undefined,
   ),
   filter((runs): runs is unknown[] => runs !== undefined),
-  map((runs) => convertKeys(runs)),
+  map((runs) => toCamelKeys(runs)),
 );
 
 export const runUpdates$ = voiceEvents$.pipe(
@@ -137,7 +125,7 @@ export const runUpdates$ = voiceEvents$.pipe(
     (event) =>
       event.type === CUSTOM_EVENT_TYPE && event.name === RUN_UPDATED_EVENT_NAME,
   ),
-  map((event) => convertKeys(event.value)),
+  map((event) => toCamelKeys(event.value)),
 );
 
 export const runLogs$ = voiceEvents$.pipe(
@@ -145,7 +133,7 @@ export const runLogs$ = voiceEvents$.pipe(
     (event) =>
       event.type === CUSTOM_EVENT_TYPE && event.name === RUN_LOG_EVENT_NAME,
   ),
-  map((event) => convertKeys(event.value)),
+  map((event) => toCamelKeys(event.value)),
 );
 
 /*

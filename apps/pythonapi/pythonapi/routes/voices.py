@@ -110,9 +110,7 @@ async def get_voice(
     holds the video.
     """
     voice = await _load_voice(repository, voice_id)
-    contributions = await contribution_repository.list_contributions_for_voice(
-        voice_id
-    )
+    contributions = await contribution_repository.list_contributions_for_voice(voice_id)
     titles = await resolve_video_titles(
         gateway, [contribution.video_id for contribution in contributions]
     )

@@ -12,7 +12,7 @@ lock service, and nothing to clean up by hand.
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from sqlalchemy import select, update
@@ -20,17 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from pythonapi.models.orm import VoiceRunRow, VoiceRunSpeakerRow
 from pythonapi.models.voice import RESTING_PHASES, VoiceRun, VoiceRunPhase
-
-
-def _utc_now() -> datetime:
-    """Now, as naive UTC.
-
-    Every datetime in this file comes from here. The Postgres columns are
-    TIMESTAMP WITHOUT TIME ZONE, so a stored value is always naive, and Python
-    refuses to compare a naive datetime against an aware one. One helper is
-    what keeps a single aware value from reaching a comparison.
-    """
-    return datetime.now(UTC).replace(tzinfo=None)
+from pythonapi.repositories.base import lease_is_free, resting_phase_values, utc_now
 
 
 class VoiceRunRepository(Protocol):
@@ -170,13 +160,13 @@ class InMemoryVoiceRunRepository:
             run.current_epoch = epoch
         if loss is not None:
             run.current_loss = loss
-        run.updated_at = _utc_now()
+        run.updated_at = utc_now()
         return run.model_copy(deep=True)
 
     async def update_run(self, run: VoiceRun) -> bool:
         if run.id not in self._runs:
             return False
-        run.updated_at = _utc_now()
+        run.updated_at = utc_now()
         self._runs[run.id] = run.model_copy(deep=True)
         return True
 
@@ -186,10 +176,10 @@ class InMemoryVoiceRunRepository:
 
     def _is_held(self, run_id: str) -> bool:
         lease = self._leases.get(run_id)
-        return lease is not None and lease[0] > _utc_now()
+        return lease is not None and lease[0] > utc_now()
 
     def _take_lease(self, run_id: str, owner: str, lease_seconds: float) -> None:
-        self._leases[run_id] = (_utc_now() + timedelta(seconds=lease_seconds), owner)
+        self._leases[run_id] = (utc_now() + timedelta(seconds=lease_seconds), owner)
 
 
 class PostgresVoiceRunRepository:
@@ -259,7 +249,10 @@ class PostgresVoiceRunRepository:
         """
         claimable = (
             select(VoiceRunRow.id)
-            .where(VoiceRunRow.phase.not_in(_resting_phase_values()), _lease_is_free())
+            .where(
+                VoiceRunRow.phase.not_in(resting_phase_values(RESTING_PHASES)),
+                lease_is_free(VoiceRunRow.leased_until),
+            )
             .order_by(VoiceRunRow.created_at)
             .limit(limit)
             .scalar_subquery()
@@ -301,7 +294,7 @@ class PostgresVoiceRunRepository:
                 row.current_epoch = epoch
             if loss is not None:
                 row.current_loss = loss
-            row.updated_at = _utc_now()
+            row.updated_at = utc_now()
             await session.commit()
             await session.refresh(row)
             runs = await _runs_from_rows(session, [row])
@@ -316,14 +309,14 @@ class PostgresVoiceRunRepository:
         into plain VoiceRun copies, and only then committed. Reading them after
         the session closed would hand back detached rows.
         """
-        expiry = _utc_now() + timedelta(seconds=lease_seconds)
+        expiry = utc_now() + timedelta(seconds=lease_seconds)
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 update(VoiceRunRow)
                 .where(
                     run_filter,
-                    VoiceRunRow.phase.not_in(_resting_phase_values()),
-                    _lease_is_free(),
+                    VoiceRunRow.phase.not_in(resting_phase_values(RESTING_PHASES)),
+                    lease_is_free(VoiceRunRow.leased_until),
                 )
                 .values(leased_until=expiry, lease_owner=owner)
                 .returning(VoiceRunRow)
@@ -356,7 +349,7 @@ class PostgresVoiceRunRepository:
                 run.failed_from_phase.value if run.failed_from_phase else None
             )
             row.failed_job_id = run.failed_job_id
-            row.updated_at = _utc_now()
+            row.updated_at = utc_now()
             await session.commit()
             return True
 
@@ -368,16 +361,6 @@ class PostgresVoiceRunRepository:
             await session.delete(row)
             await session.commit()
             return True
-
-
-def _resting_phase_values() -> list[str]:
-    return [phase.value for phase in RESTING_PHASES]
-
-
-def _lease_is_free():
-    """No one holds this run, or whoever did has gone away."""
-    now = _utc_now()
-    return (VoiceRunRow.leased_until.is_(None)) | (VoiceRunRow.leased_until < now)
 
 
 def _row_from_run(run: VoiceRun) -> VoiceRunRow:
@@ -417,9 +400,7 @@ async def _assignments_for(
 
     One query covers however many runs the caller is returning.
     """
-    assignments: dict[str, dict[str, str | None]] = {
-        run_id: {} for run_id in run_ids
-    }
+    assignments: dict[str, dict[str, str | None]] = {run_id: {} for run_id in run_ids}
     # IN () is not valid SQL, and an empty ask has an empty answer anyway
     if not assignments:
         return assignments

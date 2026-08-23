@@ -18,13 +18,12 @@ models where Python reads the fields - build_speaker_board, the reconciler,
 resolve_video_id. This proxy is for the calls nothing here inspects.
 """
 
-from collections.abc import Iterable
-
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 
 from pythonapi.config import settings
+from pythonapi.routes.proxy_headers import copy_headers
 
 router = APIRouter(prefix="/voice-factory", tags=["Voice Factory"])
 
@@ -48,12 +47,6 @@ _STREAMED_CONTENT_PREFIX = "audio/"
 _STREAM_CHUNK_SIZE = 64 * 1024
 
 
-def _copy_headers(
-    headers: Iterable[tuple[str, str]], blocked: set[str]
-) -> dict[str, str]:
-    return {key: value for key, value in headers if key.lower() not in blocked}
-
-
 def _require_factory_url() -> str:
     """The factory is optional, exactly as it is for every typed route.
 
@@ -74,9 +67,7 @@ def _require_factory_url() -> str:
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     include_in_schema=False,
 )
-async def proxy_voice_factory_request(
-    request: Request, upstream_path: str
-) -> Response:
+async def proxy_voice_factory_request(request: Request, upstream_path: str) -> Response:
     """Forward one call to the factory and return its answer unchanged.
 
     The factory's status is the browser's status. A 404 for an unknown video
@@ -86,7 +77,7 @@ async def proxy_voice_factory_request(
     """
     base_url = _require_factory_url()
     body = await request.body()
-    headers = _copy_headers(request.headers.items(), _REQUEST_HEADER_BLOCKLIST)
+    headers = copy_headers(request.headers.items(), _REQUEST_HEADER_BLOCKLIST)
     url = f"{base_url}/{upstream_path.lstrip('/')}"
 
     client = httpx.AsyncClient(timeout=settings.VOICE_FACTORY_TIMEOUT_SECONDS)
@@ -106,7 +97,7 @@ async def proxy_voice_factory_request(
             f"The voice factory did not answer: {error}",
         ) from error
 
-    response_headers = _copy_headers(
+    response_headers = copy_headers(
         upstream_response.headers.items(), _RESPONSE_HEADER_BLOCKLIST
     )
     media_type = upstream_response.headers.get("content-type")

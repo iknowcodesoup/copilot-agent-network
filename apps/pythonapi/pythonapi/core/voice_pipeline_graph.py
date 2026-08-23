@@ -207,7 +207,9 @@ def _ingest_node_factory(gateway: VoiceFactoryGateway):
         try:
             job_state = await gateway.get_job_state(run.voyicer_job_id)
         except VoiceFactoryTransientError as error:
-            return defer(run, f"Could not read job {run.voyicer_job_id}: {error}", "run")
+            return defer(
+                run, f"Could not read job {run.voyicer_job_id}: {error}", "run"
+            )
         except VoiceFactoryError as error:
             return _fail(run, f"Could not read job {run.voyicer_job_id}: {error}")
 
@@ -281,7 +283,9 @@ def _committing_node_factory(gateway: VoiceFactoryGateway):
         try:
             job_state = await gateway.get_job_state(run.voyicer_job_id)
         except VoiceFactoryTransientError as error:
-            return defer(run, f"Could not read job {run.voyicer_job_id}: {error}", "run")
+            return defer(
+                run, f"Could not read job {run.voyicer_job_id}: {error}", "run"
+            )
         except VoiceFactoryError as error:
             return _fail(run, f"Could not read job {run.voyicer_job_id}: {error}")
 

@@ -11,6 +11,7 @@ import {
 } from "@/lib/voice_api";
 import { Button } from "@/components/ui/button";
 import type { VideoSummary, VoiceRun } from "@/lib/types";
+import { toneForPhase } from "@/features/voices/derive";
 import { WatchLink } from "./watch-link";
 import { VideoCard } from "./video-card";
 import { ClipTable } from "./clip-table";
@@ -82,13 +83,6 @@ function VideoTitle({ video }: { video: VideoSummary }) {
       <Pencil className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
     </button>
   );
-}
-
-function toneForPhase(phase: VoiceRun["phase"]) {
-  if (phase === "failed") return "failed" as const;
-  if (phase === "ready") return "complete" as const;
-  if (phase === "awaiting_review") return "queued" as const;
-  return "in-progress" as const;
 }
 
 /* Retry and delete for one run.

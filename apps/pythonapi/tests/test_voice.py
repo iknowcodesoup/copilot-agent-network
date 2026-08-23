@@ -50,14 +50,14 @@ from pythonapi.models.voice import (
     VoiceRun,
     VoiceRunPhase,
 )
+from pythonapi.models.voices import VoiceContribution
+from pythonapi.repositories.voice_contributions import (
+    InMemoryVoiceContributionRepository,
+)
 from pythonapi.repositories.voice_runs import (
     InMemoryVoiceRunRepository,
     _row_from_run,
     _run_from_row,
-)
-from pythonapi.models.voices import VoiceContribution
-from pythonapi.repositories.voice_contributions import (
-    InMemoryVoiceContributionRepository,
 )
 from pythonapi.routes.voice import get_voice_events
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
@@ -299,14 +299,11 @@ async def published_runs(event_stream: VoiceEventStream) -> list[VoiceRun]:
 # --- routes ---------------------------------------------------------------
 
 
-
-
 def test_the_run_keyed_clip_routes_are_gone(voice_client):
     """Clips belong to the video. No caller may outlive its route."""
     assert voice_client.get("/api/voice/runs/run1/speakers").status_code == 404
     audio = voice_client.get("/api/voice/runs/run1/clips/clip_0001/audio")
     assert audio.status_code == 404
-
 
 
 def test_start_run_resolves_the_video_and_returns_202(voice_client, repository):
@@ -1303,7 +1300,9 @@ async def test_recording_the_same_speaker_twice_leaves_one_row():
     )
 
     await contributions.create_contribution(contribution)
-    await contributions.create_contribution(contribution.model_copy(update={"id": "c2"}))
+    await contributions.create_contribution(
+        contribution.model_copy(update={"id": "c2"})
+    )
 
     stored = await contributions.list_contributions_for_voice("voice1")
     assert [row.id for row in stored] == ["c1"]

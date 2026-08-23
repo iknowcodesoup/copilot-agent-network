@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Film, Play, Search as SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatDuration } from "@/lib/format";
 import { useStartRun, useVideoSearch, type VideoResult } from "@/lib/voice_api";
 import { WatchLink } from "./watch-link";
 import { useStudio } from "./studio-provider";
@@ -11,12 +12,6 @@ import { useStudio } from "./studio-provider";
 /* Every speaker the operator does not reassign lands here. The review screen is
    where a speaker gets its real name, so naming one up front is not required. */
 const DEFAULT_CHARACTER = "default";
-
-function formatDuration(seconds: number | null): string {
-  if (!seconds) return "--";
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
-}
 
 /* One search result. Same card shape as VideoCard's ingested-video grid, so a
    video looks the same whether you are picking it or already watching it
@@ -76,7 +71,7 @@ function SearchResultCard({
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono text-[0.7rem] text-muted-foreground">
-            {formatDuration(video.durationSec)}
+            {video.durationSec != null ? formatDuration(video.durationSec) : "--"}
           </span>
           <Button
             size="sm"

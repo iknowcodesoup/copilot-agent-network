@@ -45,6 +45,4 @@ def build_speaker_board(
             grouped.items(), key=lambda item: (item[0] is None, item[0] or "")
         )
     ]
-    return SpeakerBoard(
-        video_id=video_clips.video_id, run_id=run_id, speakers=speakers
-    )
+    return SpeakerBoard(video_id=video_clips.video_id, run_id=run_id, speakers=speakers)

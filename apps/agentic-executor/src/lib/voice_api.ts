@@ -9,10 +9,7 @@ import {
 import {
   ClipDecision,
   ClipSummary,
-  CommitStageLabels,
-  IngestStageLabels,
   JobLog,
-  PhaseLabels,
   RunAssignResponse,
   SpeakerBoard,
   TrainingProgress,
@@ -48,7 +45,7 @@ export function isActive(phase: VoiceRunPhase): boolean {
  * boundary keeps every component in one convention, so no component has to
  * remember which side of the wire a field came from.
  */
-function toCamelCase(value: string): string {
+export function toCamelCase(value: string): string {
   return value.replace(/_([a-z0-9])/g, (_, character) =>
     character.toUpperCase(),
   );
@@ -74,7 +71,7 @@ const DATA_KEYED_MAPS: ReadonlySet<string> = new Set([
   "speakerMap",
 ]);
 
-function convertKeys(
+export function convertKeys(
   value: unknown,
   convert: (key: string) => string,
 ): unknown {

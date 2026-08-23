@@ -163,9 +163,7 @@ class PostgresVoiceContributionRepository:
                     speaker_id=contribution.speaker_id,
                     created_at=contribution.created_at,
                 )
-                .on_conflict_do_nothing(
-                    index_elements=["voice_id", "speaker_id"]
-                )
+                .on_conflict_do_nothing(index_elements=["voice_id", "speaker_id"])
             )
             await session.commit()
 
@@ -189,9 +187,7 @@ class PostgresVoiceContributionRepository:
             return grouped
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                _contribution_query().where(
-                    VoiceContributionRow.voice_id.in_(grouped)
-                )
+                _contribution_query().where(VoiceContributionRow.voice_id.in_(grouped))
             )
             for rows in result.all():
                 grouped[rows[0].voice_id].append(_contribution_from_rows(*rows))

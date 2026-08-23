@@ -1,4 +1,4 @@
-import type { VoiceRun } from "@/lib/types"
+import type { VoiceRun, VoiceRunPhase } from "@/lib/types"
 
 /** A run's display title.
 
@@ -7,4 +7,14 @@ import type { VoiceRun } from "@/lib/types"
     matters, read it from the videos list and join on videoId. */
 export function runTitle(run: VoiceRun): string {
   return run.primaryCharacter || run.sourceUrl
+}
+
+/** Map a run phase to a StatusPill tone. */
+export function toneForPhase(
+  phase: VoiceRunPhase,
+): "in-progress" | "complete" | "failed" | "queued" {
+  if (phase === "failed") return "failed"
+  if (phase === "ready") return "complete"
+  if (phase === "awaiting_review") return "queued"
+  return "in-progress"
 }

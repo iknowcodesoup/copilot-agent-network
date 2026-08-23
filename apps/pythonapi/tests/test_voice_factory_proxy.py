@@ -53,9 +53,7 @@ def factory(monkeypatch):
     return Factory
 
 
-def test_the_proxy_reports_503_when_the_factory_is_not_configured(
-    client, monkeypatch
-):
+def test_the_proxy_reports_503_when_the_factory_is_not_configured(client, monkeypatch):
     """Unset means the feature is off, not that the deployment is broken -
     the same contract every typed voice route already had."""
     monkeypatch.setattr(settings, "VOICE_FACTORY_URL", "")
