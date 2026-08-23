@@ -278,8 +278,10 @@ async def lifespan(app: FastAPI):
         )
         app.state.voice_run_reconciler.start()
         # Independent of VoiceRunReconciler (FR21): its own graph, its own
-        # lease, no shared node code. assign_run and POST /voices/{id}/train
-        # both wake it directly (Story 3.3).
+        # lease, its own failure domain (Voice has no failed_from_phase/
+        # error/failed_job_id, unlike VoiceRun). Only tick-bookkeeping helpers
+        # are shared, via voice_graph_support.py. assign_run and
+        # POST /voices/{id}/train both wake it directly (Story 3.3).
         app.state.voice_training_reconciler = VoiceTrainingReconciler(
             repository=app.state.voice_repository,
             graph=build_voice_training_graph(app.state.voice_factory_gateway),

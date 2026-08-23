@@ -22,14 +22,10 @@ from typing import TypedDict
 from langgraph.graph import END, StateGraph
 
 from pythonapi.core.voice_factory_gateway import (
-    JOB_STATE_CANCELLED,
-    JOB_STATE_FAILED,
     JOB_STATE_RUNNING,
     JOB_STATE_SUCCEEDED,
-    STAGE_EXPORT,
     STAGE_PREPROCESS,
     STAGE_RESAMPLE,
-    STAGE_TRAIN,
     STAGE_YOUTUBE_CHUNK,
     STAGE_YOUTUBE_COMMIT,
     STAGE_YOUTUBE_DIARIZE,
@@ -39,6 +35,14 @@ from pythonapi.core.voice_factory_gateway import (
     VoiceFactoryError,
     VoiceFactoryGateway,
     VoiceFactoryTransientError,
+)
+from pythonapi.core.voice_graph_support import (
+    advance,
+    defer,
+    exporting_node_factory,
+    hold,
+    route_by_phase,
+    training_node_factory,
 )
 from pythonapi.models.voice import VoiceRun, VoiceRunPhase
 
@@ -63,8 +67,26 @@ def build_voice_pipeline_graph(gateway: VoiceFactoryGateway):
     builder.add_node(VoiceRunPhase.DOWNLOADING.value, _ingest_node_factory(gateway))
     builder.add_node(VoiceRunPhase.DIARIZING.value, _diarizing_node_factory(gateway))
     builder.add_node(VoiceRunPhase.COMMITTING.value, _committing_node_factory(gateway))
-    builder.add_node(VoiceRunPhase.TRAINING.value, _training_node_factory(gateway))
-    builder.add_node(VoiceRunPhase.EXPORTING.value, _exporting_node_factory(gateway))
+    builder.add_node(
+        VoiceRunPhase.TRAINING.value,
+        training_node_factory(
+            gateway,
+            "run",
+            lambda run: run.primary_character,
+            _fail,
+            VoiceRunPhase.EXPORTING,
+        ),
+    )
+    builder.add_node(
+        VoiceRunPhase.EXPORTING.value,
+        exporting_node_factory(
+            gateway,
+            "run",
+            lambda run: run.primary_character,
+            _fail,
+            VoiceRunPhase.READY,
+        ),
+    )
 
     builder.set_conditional_entry_point(
         _route_by_phase,
@@ -91,11 +113,8 @@ def build_voice_pipeline_graph(gateway: VoiceFactoryGateway):
 
 
 def _route_by_phase(state: VoiceRunState) -> str:
-    phase = state["run"].phase
-    if phase in _NODE_PHASES:
-        return phase.value
     # AWAITING_REVIEW waits on a person; READY and FAILED are terminal
-    return END
+    return route_by_phase(state, "run", _NODE_PHASES, END)
 
 
 _NODE_PHASES = frozenset(
@@ -107,17 +126,6 @@ _NODE_PHASES = frozenset(
         VoiceRunPhase.EXPORTING,
     }
 )
-
-
-def _advance(run: VoiceRun, phase: VoiceRunPhase) -> VoiceRunState:
-    run.phase = phase
-    run.voyicer_job_id = None
-    return {"run": run, "changed": True}
-
-
-def _hold(run: VoiceRun) -> VoiceRunState:
-    """Nothing to do this tick. The phase and the job both stand."""
-    return {"run": run, "changed": False}
 
 
 def _fail(run: VoiceRun, message: str) -> VoiceRunState:
@@ -133,31 +141,6 @@ def _fail(run: VoiceRun, message: str) -> VoiceRunState:
     run.failed_job_id = run.voyicer_job_id
     run.voyicer_job_id = None
     return {"run": run, "changed": True}
-
-
-def _defer(run: VoiceRun, message: str) -> VoiceRunState:
-    """The factory could not answer. Try the same thing again next tick."""
-    return {"run": run, "changed": False, "transient_error": message}
-
-
-async def _poll_job(
-    gateway: VoiceFactoryGateway, run: VoiceRun, next_phase: VoiceRunPhase
-) -> VoiceRunState | None:
-    """Check the running job. None means it is still going, so leave it alone."""
-    try:
-        state = await gateway.get_job_state(run.voyicer_job_id)
-    except VoiceFactoryTransientError as error:
-        return _defer(run, f"Could not read job {run.voyicer_job_id}: {error}")
-    except VoiceFactoryError as error:
-        return _fail(run, f"Could not read job {run.voyicer_job_id}: {error}")
-
-    if state == JOB_STATE_RUNNING:
-        return None
-    if state == JOB_STATE_SUCCEEDED:
-        return _advance(run, next_phase)
-    if state in (JOB_STATE_FAILED, JOB_STATE_CANCELLED):
-        return _fail(run, f"Job {run.voyicer_job_id} {state}. See its log for detail.")
-    return _fail(run, f"Job {run.voyicer_job_id} reported unknown state {state!r}")
 
 
 # The ingest steps, in the order the factory runs them. Each is its own control
@@ -214,7 +197,7 @@ def _ingest_node_factory(gateway: VoiceFactoryGateway):
             try:
                 job_id = await gateway.start_job(**_ingest_start_fields(run, stage))
             except VoiceFactoryTransientError as error:
-                return _defer(run, f"Could not start {stage}: {error}")
+                return defer(run, f"Could not start {stage}: {error}", "run")
             except VoiceFactoryError as error:
                 return _fail(run, f"Could not start {stage}: {error}")
             run.voyicer_job_id = job_id
@@ -224,12 +207,12 @@ def _ingest_node_factory(gateway: VoiceFactoryGateway):
         try:
             job_state = await gateway.get_job_state(run.voyicer_job_id)
         except VoiceFactoryTransientError as error:
-            return _defer(run, f"Could not read job {run.voyicer_job_id}: {error}")
+            return defer(run, f"Could not read job {run.voyicer_job_id}: {error}", "run")
         except VoiceFactoryError as error:
             return _fail(run, f"Could not read job {run.voyicer_job_id}: {error}")
 
         if job_state == JOB_STATE_RUNNING:
-            return _hold(run)
+            return hold(run, "run")
         if job_state != JOB_STATE_SUCCEEDED:
             return _fail(run, f"Step {stage} {job_state}. See its log for detail.")
 
@@ -238,7 +221,7 @@ def _ingest_node_factory(gateway: VoiceFactoryGateway):
             run.voyicer_job_id = None
             return {"run": run, "changed": True}
         run.ingest_stage_index = 0
-        return _advance(run, VoiceRunPhase.DIARIZING)
+        return advance(run, VoiceRunPhase.DIARIZING, "run")
 
     return node
 
@@ -256,7 +239,7 @@ def _diarizing_node_factory(gateway: VoiceFactoryGateway):
         try:
             video_clips = await gateway.get_clips(run.video_id)
         except VoiceFactoryTransientError as error:
-            return _defer(run, f"Could not read clips: {error}")
+            return defer(run, f"Could not read clips: {error}", "run")
         except VoiceFactoryError as error:
             return _fail(run, f"Could not read clips: {error}")
 
@@ -265,7 +248,7 @@ def _diarizing_node_factory(gateway: VoiceFactoryGateway):
         # review.csv whenever anyone asks
         if not video_clips.clips:
             return _fail(run, "Ingest produced no clips. Try a different video.")
-        return _advance(run, VoiceRunPhase.AWAITING_REVIEW)
+        return advance(run, VoiceRunPhase.AWAITING_REVIEW, "run")
 
     return node
 
@@ -289,7 +272,7 @@ def _committing_node_factory(gateway: VoiceFactoryGateway):
                     character=run.primary_character, stage=stage
                 )
             except VoiceFactoryTransientError as error:
-                return _defer(run, f"Could not start {stage}: {error}")
+                return defer(run, f"Could not start {stage}: {error}", "run")
             except VoiceFactoryError as error:
                 return _fail(run, f"Could not start {stage}: {error}")
             run.voyicer_job_id = job_id
@@ -298,12 +281,12 @@ def _committing_node_factory(gateway: VoiceFactoryGateway):
         try:
             job_state = await gateway.get_job_state(run.voyicer_job_id)
         except VoiceFactoryTransientError as error:
-            return _defer(run, f"Could not read job {run.voyicer_job_id}: {error}")
+            return defer(run, f"Could not read job {run.voyicer_job_id}: {error}", "run")
         except VoiceFactoryError as error:
             return _fail(run, f"Could not read job {run.voyicer_job_id}: {error}")
 
         if job_state == JOB_STATE_RUNNING:
-            return _hold(run)
+            return hold(run, "run")
         if job_state != JOB_STATE_SUCCEEDED:
             stage = ordered_stages[stage_index]
             return _fail(run, f"Stage {stage} {job_state}. See its log for detail.")
@@ -313,57 +296,6 @@ def _committing_node_factory(gateway: VoiceFactoryGateway):
             run.voyicer_job_id = None
             return {"run": run, "changed": True}
         run.commit_stage_index = 0
-        return _advance(run, VoiceRunPhase.TRAINING)
-
-    return node
-
-
-def _training_node_factory(gateway: VoiceFactoryGateway):
-    """TRAINING: fine-tune the model. Takes hours to days."""
-
-    async def node(state: VoiceRunState) -> VoiceRunState:
-        run = state["run"]
-        if run.voyicer_job_id is None:
-            try:
-                job_id = await gateway.start_job(
-                    character=run.primary_character, stage=STAGE_TRAIN
-                )
-            except VoiceFactoryTransientError as error:
-                return _defer(run, f"Could not start training: {error}")
-            except VoiceFactoryError as error:
-                return _fail(run, f"Could not start training: {error}")
-            run.voyicer_job_id = job_id
-            return {"run": run, "changed": True}
-
-        result = await _poll_job(gateway, run, VoiceRunPhase.EXPORTING)
-        return result if result is not None else _hold(run)
-
-    return node
-
-
-def _exporting_node_factory(gateway: VoiceFactoryGateway):
-    """EXPORTING: write the ONNX model, then the run is done."""
-
-    async def node(state: VoiceRunState) -> VoiceRunState:
-        run = state["run"]
-        if run.voyicer_job_id is None:
-            try:
-                job_id = await gateway.start_job(
-                    character=run.primary_character,
-                    stage=STAGE_EXPORT,
-                    # No run ever wrote this column, so the value was already
-                    # always None - the column removal (Story 3.1) just makes
-                    # that explicit.
-                    checkpoint=None,
-                )
-            except VoiceFactoryTransientError as error:
-                return _defer(run, f"Could not start export: {error}")
-            except VoiceFactoryError as error:
-                return _fail(run, f"Could not start export: {error}")
-            run.voyicer_job_id = job_id
-            return {"run": run, "changed": True}
-
-        result = await _poll_job(gateway, run, VoiceRunPhase.READY)
-        return result if result is not None else _hold(run)
+        return advance(run, VoiceRunPhase.TRAINING, "run")
 
     return node
