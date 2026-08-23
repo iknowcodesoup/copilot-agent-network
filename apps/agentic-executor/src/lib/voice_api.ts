@@ -43,19 +43,6 @@ export function isActive(phase: VoiceRunPhase): boolean {
   return activePhases.has(phase);
 }
 
-/* Where a retry on this run would resume. Falls back to the phase's own label
-   when the phase has no sub-steps to name. */
-export function resumeStepLabel(run: VoiceRun): string {
-  const resumePhase = run.failedFromPhase ?? "downloading";
-  if (resumePhase === "downloading") {
-    return IngestStageLabels[run.ingestStageIndex] ?? PhaseLabels.downloading;
-  }
-  if (resumePhase === "committing") {
-    return CommitStageLabels[run.commitStageIndex] ?? PhaseLabels.committing;
-  }
-  return PhaseLabels[resumePhase];
-}
-
 /*
  * FastAPI speaks snake_case and this app speaks camelCase. Converting at the
  * boundary keeps every component in one convention, so no component has to
@@ -78,8 +65,7 @@ function toSnakeCase(value: string): string {
  * voice_assignments is keyed by speaker label. toCamelCase matches _[a-z0-9],
  * so it rewrote SPEAKER_00 to SPEAKER00 on every read - which then matched no
  * clip.speakerLabel, and made an assignment that was stored correctly look
- * like it had never happened. speakerMapBody below guards the same labels on
- * the way out.
+ * like it had never happened.
  */
 const DATA_KEYED_MAPS: ReadonlySet<string> = new Set([
   "voice_assignments",
@@ -147,14 +133,6 @@ export async function request<T>(
 
 export function jsonBody(payload: unknown): string {
   return JSON.stringify(convertKeys(payload, toSnakeCase));
-}
-
-/*
- * speaker_map keys are speaker labels like SPEAKER_00, not field names. Running
- * them through the case converter would rewrite them, so they stay untouched.
- */
-function speakerMapBody(speakerMap: Record<string, string | null>): string {
-  return JSON.stringify({ speaker_map: speakerMap });
 }
 
 export const voiceQueryKeys = {
@@ -281,22 +259,6 @@ export function useVideoSearch(query: string) {
   });
 }
 
-export function useCharacters() {
-  return useQuery({
-    queryKey: voiceQueryKeys.characters,
-    /* {characters: [...]} on the wire; the removed route unwrapped it. */
-    queryFn: async () =>
-      (
-        await request<{ characters: string[] }>(
-          "/characters",
-          undefined,
-          voiceFactoryBase,
-        )
-      ).characters,
-    staleTime: 60_000,
-  });
-}
-
 export function useStartRun() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -387,21 +349,6 @@ export function useDeleteVideo() {
       request<void>(`/videos/${videoId}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: voiceQueryKeys.videos });
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.runs });
-    },
-  });
-}
-
-export function useApproveRun(runId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (speakerMap: Record<string, string | null>) =>
-      request<VoiceRun>(`/runs/${runId}/approve`, {
-        method: "POST",
-        body: speakerMapBody(speakerMap),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.run(runId) });
       queryClient.invalidateQueries({ queryKey: voiceQueryKeys.runs });
     },
   });

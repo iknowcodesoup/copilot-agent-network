@@ -167,7 +167,6 @@ class Settings(BaseSettings):
     RATE_LIMIT_STORAGE_URI: str = "async+memory://"
     SEARCH_RATE_LIMIT: str = "20/minute"
     SEARCH_CACHE_CAPACITY: int = 100
-    SEARCH_DEFAULT_TOP_K: int = 5
 
     # No env_file: this service reads real process environment variables only
     # (docker-compose.yml injects them directly). A dotenv path here would

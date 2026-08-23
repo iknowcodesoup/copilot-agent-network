@@ -56,11 +56,6 @@ class VideoResult(BaseModel):
     url: str
 
 
-class VideoSearchResponse(BaseModel):
-    query: str
-    videos: list[VideoResult] = Field(default_factory=list)
-
-
 # A video and its speakers are the factory's own facts, so this service passes
 # both through exactly as the factory shapes them. There is no model here on
 # purpose: a field the factory adds must reach the browser with no edit in this
@@ -207,10 +202,6 @@ class ClipDecision(BaseModel):
     text: str | None = None
 
 
-class ClipDecisionRequest(BaseModel):
-    decisions: list[ClipDecision] = Field(min_length=1)
-
-
 class SpeakerAssignmentRequest(BaseModel):
     """Approve the review and start training.
 
@@ -218,25 +209,6 @@ class SpeakerAssignmentRequest(BaseModel):
     """
 
     speaker_map: dict[str, str | None]
-
-
-class CommitRequest(BaseModel):
-    """Route reviewed clips from several videos to several characters in one
-    call (FR14).
-
-    Maps video_id to that video's {speaker_label: character} entries. A
-    character of None discards that speaker's clips, same meaning as
-    SpeakerAssignmentRequest. Distinct from SpeakerAssignmentRequest, which
-    approves and commits a single run's own video.
-    """
-
-    assignments: dict[str, dict[str, str | None]] = Field(min_length=1)
-
-
-class CommitResponse(BaseModel):
-    """How many clips each named character's dataset gained."""
-
-    committed: dict[str, int] = Field(default_factory=dict)
 
 
 class CheckpointSummary(BaseModel):

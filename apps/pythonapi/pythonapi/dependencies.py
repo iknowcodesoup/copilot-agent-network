@@ -23,7 +23,6 @@ from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.repositories.base import DocumentRepository
 from pythonapi.repositories.orders import OrderRepository
-from pythonapi.repositories.pii_vault import PiiVaultRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
@@ -35,16 +34,6 @@ from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 def get_redis(request: Request) -> Redis | None:
     return request.app.state.redis
-
-
-def get_required_redis(request: Request) -> Redis:
-    redis_client = request.app.state.redis
-    if redis_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Redis is not configured.",
-        )
-    return redis_client
 
 
 def get_langfuse(request: Request) -> Langfuse | None:
@@ -163,10 +152,6 @@ def get_search_cache(request: Request) -> LRUCache:
 
 def get_pii_masker(request: Request) -> PiiMasker | None:
     return request.app.state.pii_masker
-
-
-def get_pii_vault_repository(request: Request) -> PiiVaultRepository | None:
-    return request.app.state.pii_vault_repository
 
 
 def get_reranker(request: Request) -> Reranker:
