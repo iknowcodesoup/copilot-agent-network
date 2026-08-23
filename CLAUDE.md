@@ -129,14 +129,20 @@ apps/
 ├── agentic-executor/            # Next.js 16 front end (port 4001)
 │   ├── specs/                   # Jest component tests
 │   └── src/
-│       ├── components/ui/       # shadcn (base-mira on Base UI, hugeicons)
-│       └── app/
-│           ├── layout.tsx       # QueryProvider + CopilotProvider + nav
-│           ├── page.tsx
-│           ├── voices/          # HIL dashboard for the TTS pipeline
-│           └── features/        # Domain UI, grouped by feature
-│               ├── chat/        # copilot_provider.tsx, chat_window.tsx
-│               └── voices/      # voice_api.ts, speaker_board.tsx, ...
+│       ├── app/                 # routes ONLY
+│       │   ├── layout.tsx, page.tsx, globals.css
+│       ├── features/            # Domain UI, grouped by feature
+│       │   ├── chat/            # assistant.ts, chat_panel.tsx, studio_provider.tsx
+│       │   ├── search/          # search_view.tsx
+│       │   └── voices/          # views, cards, clip UI, derive.ts, types.ts
+│       │       └── api/         # voice_client.ts, query_keys.ts, endpoints.ts,
+│       │                        # use_voice_runs.ts, use_videos.ts, use_voices.ts
+│       ├── components/
+│       │   ├── ui/              # shadcn (base-mira on Base UI, hugeicons) — UNCHANGED
+│       │   └── query_provider.tsx
+│       └── lib/
+│           ├── utils.ts         # shadcn alias — UNCHANGED
+│           └── format.ts
 ├── agentic-executor-e2e/        # Playwright end-to-end tests
 └── pythonapi/                   # FastAPI service (port 8000)
     ├── baml_src/                # BAML source: clients, generators, rag
@@ -152,26 +158,40 @@ apps/
         │   ├── embeddings.py, reranking.py, generation.py
         │   ├── document_parsing.py, pii.py
         │   ├── voice_factory_gateway.py   # Calls the voice factory host
-        │   ├── voice_pipeline_graph.py    # LangGraph, one node per phase
+        │   ├── voice_run_graph.py         # LangGraph: one video's ingest, one node per phase
+        │   ├── voice_training_graph.py    # LangGraph: one voice's training, one node per phase
+        │   ├── voice_graph_support.py     # Tick-bookkeeping shared by the two graphs
+        │   ├── voice_run_assignment.py    # Assign/commit orchestration for a run
         ├── infrastructure/      # External client builders — one per system
         │   ├── postgres_client.py, qdrant_client.py
         │   ├── redis_client.py, langfuse_client.py
         ├── repositories/        # Persistence — SQLAlchemy and Qdrant only
         │   ├── postgres.py, qdrant.py, orders.py
         │   ├── pii_vault.py, memory.py, base.py
+        │   ├── voice_runs.py, voice_repository.py, voice_contributions.py
         ├── models/              # Pydantic schemas + SQLAlchemy ORM (orm.py)
+        │   ├── voice_run.py     # Per-video ingest: VoiceRun, VoiceRunPhase, clips
+        │   ├── voice.py         # Durable trained-model identity: Voice, VoicePhase
         ├── routes/              # HTTP layer — thin, delegates to core/
         │   ├── agent.py         # AG-UI SSE endpoint
         │   ├── documents.py, search.py, orders.py
         │   ├── health.py, openai_proxy.py
+        │   ├── voice_runs.py, voice_videos.py, voice_jobs.py, voice_events.py
+        │   ├── voice_route_support.py, voice_factory_proxy.py, voices.py
         ├── middleware/          # idempotency.py
         └── workers/             # embedding_worker.py — background embed pool
-                                 # voice_run_reconciler.py — advances runs
+                                 # voice_run_reconciler.py, voice_training_reconciler.py
 ```
 
 > `baml_client/` is generated from `baml_src/`. Regenerate it. Never hand-edit it.
 > Layer rule: `routes/` → `core/` → `repositories/` → `infrastructure/`.
 > Never import in the other direction.
+>
+> **A file past ~200-300 lines is a prompt to go look, not a rule to obey.**
+> One clear responsibility at that length is fine and stays as it is — split
+> only where a file genuinely does two jobs (mixed orchestration and HTTP
+> shaping, or transport plus every domain's data access in one module).
+> No lint rule, no CI check, no mechanical splitting.
 
 ---
 
@@ -372,7 +392,9 @@ interpolation, which the LiteLLM and Langfuse blocks and the
   needs state, effects, or browser APIs.
 - File names are `snake_case.tsx`. Exported component names are `PascalCase`.
   Example: `chat_window.tsx` exports `ChatWindow`.
-- Group by feature under `src/app/features/<feature>/`.
+- Group by feature under `src/features/<feature>/`, a sibling of `src/app/`
+  (which holds routes only). `src/components/ui/` and `src/lib/utils.ts` are
+  the shadcn CLI's pinned paths (`components.json`) and never move.
 - Build the `HttpAgent` at module scope, not inside a render.
 
 ### Comments
