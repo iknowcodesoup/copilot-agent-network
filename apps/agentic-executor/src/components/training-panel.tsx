@@ -1,35 +1,31 @@
 "use client";
 
-import { useState } from "react";
-import { Play, Download, Cpu, Waves, AlertCircle } from "lucide-react";
+import { Play, Cpu, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useStudio } from "./studio-provider";
-import { AudioPlayerBar } from "./audio-player-bar";
+import { useTrainVoice, useVoiceDetail } from "@/lib/voice_api";
 import type { VoiceDetail } from "@/lib/types";
 
+/*
+ * One voice, and the speakers committed into it.
+ *
+ * The list already carries the contributions, so the card grid renders
+ * without this. The detail request adds one thing the list leaves out: each
+ * contribution's video title, which the factory owns and costs a call per
+ * video to resolve.
+ *
+ * The sample and export controls that used to sit here are gone. Both called
+ * provider stubs with empty bodies and then reported success, so the panel
+ * said it had synthesized audio and started a download when it had done
+ * neither.
+ */
 export function TrainingPanel({ voice }: { voice: VoiceDetail }) {
-  const { trainingForVoice, startTraining, sampleVoice, exportVoice } =
-    useStudio();
-  const training = trainingForVoice(voice);
-  const [error, setError] = useState<string | null>(null);
-  const [sampleText, setSampleText] = useState(
-    "The quick brown fox jumps over the lazy dog.",
-  );
-  const [sample, setSample] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const onTrain = async () => {
-    setError(null);
-    const result = await startTraining(voice.id);
-    if (result?.error) setError(result.error);
-  };
-  const onSample = async () => {
-    setBusy(true);
-    setError(null);
-    const result = await sampleVoice(voice.id, sampleText);
-    setBusy(false);
-    if (result?.error) setError(result.error);
-    else setSample(result?.text ?? sampleText);
-  };
+  const detail = useVoiceDetail(voice.id);
+  const trainVoice = useTrainVoice();
+  /* The list's copy until the detail lands, so the panel never blanks out
+     between selecting a voice and its titles arriving. */
+  const contributions = detail.data?.contributions ?? voice.contributions;
+  const trainable = contributions.length > 0 && voice.phase !== "training";
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -41,77 +37,54 @@ export function TrainingPanel({ voice }: { voice: VoiceDetail }) {
             {voice.name}
           </h3>
           <p className="font-mono text-xs text-muted-foreground">
-            {voice.contributions.length} clips assigned
+            {contributions.length} speaker
+            {contributions.length === 1 ? "" : "s"} assigned
           </p>
         </div>
         <div className="ml-auto flex gap-2">
           <Button
-            variant="outline"
             size="sm"
-            disabled={!voice.checkpointPath}
-            onClick={() => exportVoice(voice.id)}
+            onClick={() => trainVoice.mutate(voice.id)}
+            disabled={!trainable || trainVoice.isPending}
           >
-            <Download /> Export model
-          </Button>
-          <Button
-            size="sm"
-            onClick={onTrain}
-            disabled={
-              voice.phase === "training" || voice.contributions.length === 0
-            }
-          >
-            <Play />{" "}
+            <Play />
             {voice.phase === "training" ? "Training…" : "Start training"}
           </Button>
         </div>
       </div>
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+
+      {trainVoice.isError && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           <AlertCircle className="size-4" />
-          {error}
+          {trainVoice.error.message}
         </div>
       )}
-      {voice.checkpointPath && (
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <div className="mb-2 flex items-center gap-2">
-            <Waves className="size-3.5 text-primary" />
-            <h4 className="text-xs font-semibold uppercase tracking-wide">
-              Sample voice
-            </h4>
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={sampleText}
-              onChange={(e) => setSampleText(e.target.value)}
-              className="min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm"
-            />
-            <Button
-              size="sm"
-              onClick={onSample}
-              disabled={busy || !sampleText.trim()}
+
+      {contributions.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          Nothing assigned yet. Pick this voice on a speaker in a video&apos;s
+          clip list, then train it.
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {contributions.map((contribution) => (
+            <li
+              key={contribution.id}
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background/40 px-3 py-2"
             >
-              <Play />
-              {busy ? "Synth…" : "Generate"}
-            </Button>
-          </div>
-          {sample && (
-            <div className="mt-3 rounded-md border border-border bg-card p-2.5">
-              <p className="text-xs text-muted-foreground">
-                &ldquo;{sample}&rdquo;
-              </p>
-              <AudioPlayerBar
-                peaks={[]}
-                durationSec={2}
-                seed={`${voice.id}:${sample}`}
-                accent="var(--primary)"
-              />
-            </div>
-          )}
-        </div>
+              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-mono text-[0.7rem] text-primary">
+                {contribution.speakerLabel}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                {contribution.videoTitle ?? contribution.videoId ?? "unknown video"}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
-      <div className="rounded-lg border border-border p-3 text-sm text-muted-foreground">
-        {training?.checkpoints.length ?? 0} checkpoints available.
-      </div>
     </div>
   );
 }

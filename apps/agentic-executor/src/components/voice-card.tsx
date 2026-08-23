@@ -1,11 +1,18 @@
 "use client";
 
-import { Mic, Scissors } from "lucide-react";
-import { useStudio } from "./studio-provider";
+import { Mic, Users, Clapperboard } from "lucide-react";
 import { StatusPill } from "./status-pill";
 import { cn } from "@/lib/utils";
 import type { VoiceDetail } from "@/lib/types";
 
+/*
+ * What a voice is made of, read from its contributions.
+ *
+ * A contribution is one speaker label from one video, joined to this voice by
+ * id. That is the whole association, so the card counts those rows rather
+ * than a stored total - there is no clip count column, and inventing one
+ * would give the same fact two writers.
+ */
 export function VoiceCard({
   voice,
   selected,
@@ -15,9 +22,10 @@ export function VoiceCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const { trainingForVoice } = useStudio();
-  const training = trainingForVoice(voice);
-  const clips = voice.contributions.length;
+  const speakerCount = voice.contributions.length;
+  const videoCount = new Set(
+    voice.contributions.map((contribution) => contribution.videoId),
+  ).size;
   const active = voice.phase === "training";
   return (
     <button
@@ -50,12 +58,19 @@ export function VoiceCard({
         />
       </div>
       <div className="flex items-center gap-3 font-mono text-[0.7rem] text-muted-foreground">
-        <span className="inline-flex items-center gap-1">
-          <Scissors className="size-3" />
-          {clips} clips
-        </span>
-        {training?.checkpoints[0] && (
-          <span>epoch {training.checkpoints[0].epoch ?? "—"}</span>
+        {speakerCount === 0 ? (
+          <span>no speakers assigned yet</span>
+        ) : (
+          <>
+            <span className="inline-flex items-center gap-1">
+              <Users className="size-3" />
+              {speakerCount} speaker{speakerCount === 1 ? "" : "s"}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Clapperboard className="size-3" />
+              {videoCount} video{videoCount === 1 ? "" : "s"}
+            </span>
+          </>
         )}
       </div>
     </button>

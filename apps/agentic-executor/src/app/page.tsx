@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StudioProvider, useStudio } from "@/components/studio-provider";
+import { useVideos, useVoiceList, useVoiceRuns } from "@/lib/voice_api";
 import { VoiceLiveState } from "@/lib/voice_event_stream";
 import { VideosView } from "@/components/videos-view";
 import { VoicesView } from "@/components/voices-view";
@@ -12,10 +13,12 @@ import { ChatPanel } from "@/components/chat-panel";
 import { AddVideoBar } from "@/components/add-video-bar";
 
 function ViewTabs() {
-  const { view, setView, snapshot } = useStudio();
+  const { view, setView } = useStudio();
+  const videos = useVideos();
+  const voices = useVoiceList();
   const tabs: { id: "videos" | "voices" | "search"; label: string; count?: number }[] = [
-    { id: "videos", label: "Videos", count: snapshot.videos.length },
-    { id: "voices", label: "Voices", count: snapshot.voices.length },
+    { id: "videos", label: "Videos", count: videos.data?.length ?? 0 },
+    { id: "voices", label: "Voices", count: voices.data?.length ?? 0 },
     { id: "search", label: "Search" },
   ];
   return (
@@ -50,7 +53,7 @@ function ViewTabs() {
 }
 
 function ConnectionBadge() {
-  const { connected } = useStudio();
+  const connected = !useVoiceRuns().isError;
   return (
     <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5">
       <span className="relative flex h-2 w-2">

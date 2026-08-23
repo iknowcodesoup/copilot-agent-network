@@ -125,7 +125,7 @@ describe("useTrainVoice", () => {
     });
     const invalidateSpy = jest.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useTrainVoice("v1"), {
+    const { result } = renderHook(() => useTrainVoice(), {
       wrapper: ({ children }) => (
         <QueryClientProvider client={queryClient}>
           {children}
@@ -133,7 +133,7 @@ describe("useTrainVoice", () => {
       ),
     });
 
-    result.current.mutate();
+    result.current.mutate("v1");
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 

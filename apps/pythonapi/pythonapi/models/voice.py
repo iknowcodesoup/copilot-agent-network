@@ -101,6 +101,10 @@ class VoiceRun(BaseModel):
     # factory has no Voice concept, so nothing there mirrors it. Set by
     # POST .../assign, which stores this mapping and commits it - contribution
     # rows and phase change - in the same call.
+    # Speaker label -> Voice id, for the review screen. Derived, not stored:
+    # the rows in voice_contributions are the record, and this is a projection
+    # of them built when a run is read. Writing to it does nothing - see
+    # POST /runs/{id}/assign.
     voice_assignments: dict[str, str | None] = Field(default_factory=dict)
     voyicer_job_id: str | None = None
     # which of DOWNLOADING's ordered ingest steps is in flight

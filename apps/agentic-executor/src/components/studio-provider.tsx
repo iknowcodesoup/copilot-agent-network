@@ -1,46 +1,28 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-} from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  request,
-  useAssignRun,
-  useCommitRun,
-  useCreateVoice,
-  useJobLog,
-  useSpeakerBoard,
-  useStartRun,
-  useUpdateClips,
-  voiceQueryKeys,
-  voicesApiBase,
-  useVideos,
-  useVoiceList,
-  useVoiceRuns,
-  VoiceApiError,
-} from "@/lib/voice_api";
-import type {
-  LogLine,
-  Snapshot,
-  StudioClip,
-  TrainingProgress,
-  VideoSummary,
-  VoiceDetail,
-  VoiceRun,
-} from "@/lib/types";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { useVoiceRuns } from "@/lib/voice_api";
+
+/*
+ * What the operator is looking at, and nothing else.
+ *
+ * Server state belongs to TanStack Query, which is already the single
+ * reactive source: the event stream writes pushed updates straight into that
+ * cache, so every component reading a query hook re-renders together. This
+ * provider used to mirror those queries into a `snapshot` object and wrap
+ * every mutation in a second function. That copy was the problem - it hand-
+ * built voice objects with empty contribution lists, and derived an
+ * "active" run id by guessing, which sent clip writes at the wrong video.
+ *
+ * So: five pieces of view state here, and components call the query hooks
+ * directly for everything else.
+ */
 
 type View = "videos" | "voices" | "search";
+
 interface StudioContextValue {
-  snapshot: Snapshot;
-  logs: LogLine[];
-  connected: boolean;
   view: View;
-  setView: (v: View) => void;
+  setView: (view: View) => void;
   selectedRunId: string | null;
   setSelectedRunId: (id: string | null) => void;
   selectedVideoId: string | null;
@@ -48,227 +30,35 @@ interface StudioContextValue {
   selectedVoiceId: string | null;
   setSelectedVoiceId: (id: string | null) => void;
   logFilter: string;
-  setLogFilter: (k: string) => void;
-  clipsForRun: (runId: string) => StudioClip[];
-  clipsForVoice: (voiceId: string) => StudioClip[];
-  videoForRun: (run: VoiceRun) => VideoSummary | undefined;
-  trainingForVoice: (voice: VoiceDetail) => TrainingProgress | undefined;
-  addVideo: (url: string, title?: string) => Promise<VoiceRun | null>;
-  updateClip: (
-    clipId: string,
-    patch: { speakerLabel?: string; text?: string; keep?: boolean },
-  ) => Promise<void>;
-  assignClipVoice: (clipId: string, voiceId: string) => Promise<void>;
-  commitRun: () => Promise<void>;
-  createVoice: (name: string) => Promise<VoiceDetail | null>;
-  startTraining: (voiceId: string) => Promise<{ error?: string } | null>;
-  sampleVoice: (
-    voiceId: string,
-    text?: string,
-  ) => Promise<{ error?: string; text?: string } | null>;
-  exportVoice: (voiceId: string, ckpt?: string) => void;
+  setLogFilter: (key: string) => void;
 }
 
 const StudioContext = createContext<StudioContextValue | null>(null);
-const EMPTY: Snapshot = {
-  runs: [],
-  videos: [],
-  clips: [],
-  voices: [],
-  training: [],
-};
 
 export function StudioProvider({ children }: { children: React.ReactNode }) {
-  const queryClient = useQueryClient();
-  const runsQuery = useVoiceRuns();
-  const videosQuery = useVideos();
-  const voicesQuery = useVoiceList();
-  const startRun = useStartRun();
-  const createVoiceMutation = useCreateVoice();
+  const runs = useVoiceRuns();
   const [view, setView] = useState<View>("videos");
   const [selectedRunId, setSelectedRunIdState] = useState<string | null>(null);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState("all");
-  const runs = runsQuery.data ?? [];
+
   /* Selection is keyed by video, since a freshly ingested video may have no
-     run yet - two such videos both reduce to a null runId and would
-     otherwise be indistinguishable. setSelectedRunId (used by the assistant,
-     which only ever selects an existing run) keeps selectedVideoId in sync. */
+     run yet - two such videos both reduce to a null runId and would otherwise
+     be indistinguishable. Selecting a run keeps the video in sync. */
+  const runList = runs.data ?? [];
   const setSelectedRunId = useCallback(
     (id: string | null) => {
       setSelectedRunIdState(id);
       setSelectedVideoId(
-        (id ? runs.find((run) => run.id === id)?.videoId : null) ?? null,
+        (id ? runList.find((run) => run.id === id)?.videoId : null) ?? null,
       );
     },
-    [runs],
+    [runList],
   );
-  /* No fallback to the first run. Nothing selected means no target, and
-     guessing one silently pointed every clip write and every commit at
-     whichever run happened to sort first. */
-  const activeRunId =
-    (selectedVideoId
-      ? runs.find((run) => run.videoId === selectedVideoId)?.id
-      : selectedRunId) ?? "";
-  /* Clips are addressed by video, so the board and every clip write need the
-     run's video, not the run. A run with no video id has no clips to show. */
-  const activeVideoId =
-    runs.find((run) => run.id === activeRunId)?.videoId ?? "";
-  const updateClips = useUpdateClips(activeVideoId);
-  const logQuery = useJobLog(activeRunId, Boolean(activeRunId));
-  const speakerBoardQuery = useSpeakerBoard(
-    activeVideoId,
-    Boolean(activeVideoId),
-  );
-  const assignRun = useAssignRun(activeRunId);
-  const commitRunMutation = useCommitRun(activeRunId);
-  const voices: VoiceDetail[] = (voicesQuery.data ?? []).map((voice) => ({
-    ...voice,
-    checkpointPath: null,
-    voyicerJobId: null,
-    contributions: [],
-    createdAt: "",
-    updatedAt: "",
-  }));
-  /* One source for videos, the factory, exactly as VideosView reads them.
-     Building them out of runs is what made a run and a video look like the
-     same row. */
-  const videos: VideoSummary[] = videosQuery.data ?? [];
-  const snapshot: Snapshot = { ...EMPTY, runs, voices, videos };
-  const logs: LogLine[] = (logQuery.data?.content ?? "")
-    .split(/\r?\n/)
-    .map((message) => message.trim())
-    .filter((message) => message.length > 0)
-    .map((message, index) => ({
-      id: `${activeRunId}-${logQuery.data?.offset ?? 0}-${index}`,
-      key: activeRunId,
-      ts: Date.now(),
-      message,
-    }));
-
-  const clips: StudioClip[] =
-    speakerBoardQuery.data?.speakers
-      .flatMap((speaker) => speaker.clips)
-      .map((clip, index) => ({
-        ...clip,
-        runId: activeRunId,
-        videoId: activeVideoId,
-        index,
-      })) ?? [];
-  const clipsForRun = useCallback(
-    (runId: string) => (runId === activeRunId ? clips : []),
-    [activeRunId, clips],
-  );
-  const clipsForVoice = useCallback(
-    (voiceId: string) => clips.filter((clip) => clip.speakerLabel === voiceId),
-    [clips],
-  );
-  /* A run with no video id, or one the factory no longer lists, has no video.
-     Undefined says so - it must never fall through to another run's. */
-  const videoForRun = useCallback(
-    (run: VoiceRun) =>
-      run.videoId
-        ? videos.find((video) => video.videoId === run.videoId)
-        : undefined,
-    [videos],
-  );
-  const trainingForVoice = useCallback(() => undefined, []);
-  const addVideo = useCallback(
-    async (url: string, title?: string) => {
-      const result = await startRun.mutateAsync({
-        primaryCharacter: title?.trim() || "default",
-        sourceUrl: url,
-        diarize: true,
-        numSpeakers: null,
-      });
-      return runs.find((run) => run.id === result.id) ?? null;
-    },
-    [runs, startRun],
-  );
-  const updateClip = useCallback(
-    async (
-      clipId: string,
-      patch: { speakerLabel?: string; text?: string; keep?: boolean },
-    ) => {
-      /* Throws rather than returning: a clip write that quietly does nothing
-         reads as a saved edit, and the operator finds out at commit. */
-      if (!activeVideoId)
-        throw new Error("Select a video before editing its clips.");
-      await updateClips.mutateAsync([
-        {
-          clipId,
-          keep: patch.keep,
-          speakerLabel: patch.speakerLabel,
-          text: patch.text,
-        },
-      ]);
-    },
-    [activeVideoId, updateClips],
-  );
-  const assignClipVoice = useCallback(
-    async (clipId: string, voiceId: string) => {
-      if (!activeRunId)
-        throw new Error("Select a video before assigning its clips.");
-      const newAssignments: { [id: string]: string } = {};
-      const target = clips.find((clip) => clip.clipId === clipId);
-      if (target)
-        newAssignments[target.speakerLabel ?? target.clipId] = voiceId;
-      await assignRun.mutateAsync(newAssignments);
-    },
-    [activeRunId, assignRun, clips],
-  );
-  const commitRun = useCallback(async () => {
-    if (!activeRunId) throw new Error("Select a video before committing it.");
-    await commitRunMutation.mutateAsync();
-  }, [activeRunId, commitRunMutation]);
-  const createVoice = useCallback(
-    async (name: string) => {
-      const result = await createVoiceMutation.mutateAsync(name);
-      return {
-        id: result.id,
-        name,
-        phase: "awaiting_commit",
-        checkpointPath: null,
-        voyicerJobId: null,
-        contributions: [],
-        createdAt: "",
-        updatedAt: "",
-      } as VoiceDetail;
-    },
-    [createVoiceMutation],
-  );
-  const startTraining = useCallback(
-    async (voiceId: string) => {
-      try {
-        await request(`/${voiceId}/train`, { method: "POST" }, voicesApiBase);
-        queryClient.invalidateQueries({
-          queryKey: voiceQueryKeys.voiceDetail(voiceId),
-        });
-        queryClient.invalidateQueries({ queryKey: voiceQueryKeys.voiceList });
-        return null;
-      } catch (error) {
-        const message =
-          error instanceof VoiceApiError ? error.message : "Training failed to start.";
-        return { error: message };
-      }
-    },
-    [queryClient],
-  );
-  const sampleVoice = useCallback(
-    async (_voiceId: string, text?: string) => ({ text: text ?? "" }),
-    [],
-  );
-  const exportVoice = useCallback((_voiceId: string, _ckpt?: string) => {
-    // Export is a stub: the model file lives on the voice factory host, and
-    // there is no download/copy action wired up yet.
-  }, []);
 
   const value = useMemo(
     () => ({
-      snapshot,
-      logs,
-      connected: !runsQuery.isError,
       view,
       setView,
       selectedRunId,
@@ -279,40 +69,14 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       setSelectedVoiceId,
       logFilter,
       setLogFilter,
-      clipsForRun,
-      clipsForVoice,
-      videoForRun,
-      trainingForVoice,
-      addVideo,
-      updateClip,
-      assignClipVoice,
-      commitRun,
-      createVoice,
-      startTraining,
-      sampleVoice,
-      exportVoice,
     }),
     [
-      snapshot,
-      logs,
-      runsQuery.isError,
       view,
       selectedRunId,
+      setSelectedRunId,
       selectedVideoId,
       selectedVoiceId,
       logFilter,
-      clipsForRun,
-      clipsForVoice,
-      videoForRun,
-      trainingForVoice,
-      addVideo,
-      updateClip,
-      assignClipVoice,
-      commitRun,
-      createVoice,
-      startTraining,
-      sampleVoice,
-      exportVoice,
     ],
   );
   return (
@@ -324,4 +88,13 @@ export function useStudio() {
   const context = useContext(StudioContext);
   if (!context) throw new Error("useStudio must be used within StudioProvider");
   return context;
+}
+
+/* The run showing a given video, or null. Selection stores the video; the
+   actions need the run. Every caller resolves it the same way, from the one
+   runs query, instead of the provider guessing one for everybody. */
+export function useRunForVideo(videoId: string | null) {
+  const runs = useVoiceRuns();
+  if (!videoId) return null;
+  return runs.data?.find((run) => run.videoId === videoId) ?? null;
 }

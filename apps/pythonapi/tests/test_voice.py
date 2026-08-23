@@ -37,7 +37,11 @@ from pythonapi.infrastructure.redis_client import (
     build_redis_client,
 )
 from pythonapi.main import app
-from pythonapi.models.orm import VoiceRunRow
+from pythonapi.models.orm import (
+    VoiceContributionRow,
+    VoiceRunRow,
+    VoiceRunSpeakerRow,
+)
 from pythonapi.models.voice import (
     ClipSummary,
     TrainingProgress,
@@ -50,6 +54,10 @@ from pythonapi.repositories.voice_runs import (
     InMemoryVoiceRunRepository,
     _row_from_run,
     _run_from_row,
+)
+from pythonapi.models.voices import VoiceContribution
+from pythonapi.repositories.voice_contributions import (
+    InMemoryVoiceContributionRepository,
 )
 from pythonapi.routes.voice import get_voice_events
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
@@ -76,6 +84,7 @@ class FakeVoiceFactoryGateway:
         # dicts, not models: the routes pass the factory's own payload
         # through, so a field the factory adds must survive the trip
         self.videos: list[dict] = []
+        self.deleted_videos: list[str] = []
         self.video_speakers: list[dict] = []
         self.speaker_map: dict[str, str | None] = {}
         self.clip_audio: bytes = b""
@@ -135,6 +144,10 @@ class FakeVoiceFactoryGateway:
     async def get_video_speakers(self, video_id: str) -> list[dict]:
         self._guard()
         return list(self.video_speakers)
+
+    async def delete_video(self, video_id: str) -> None:
+        self._guard()
+        self.deleted_videos.append(video_id)
 
     async def get_clips(self, video_id: str) -> VideoClips:
         self._guard()
@@ -478,6 +491,55 @@ async def test_delete_run_cancels_its_job(voice_client, gateway, repository):
     assert response.status_code == 204
     assert gateway.cancelled_jobs == ["job7"]
     assert await repository.get_run("run1") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_video_deletes_it_on_the_factory(voice_client, gateway):
+    response = voice_client.delete("/api/voice/videos/vid_abc123")
+
+    assert response.status_code == 204
+    assert gateway.deleted_videos == ["vid_abc123"]
+
+
+@pytest.mark.asyncio
+async def test_delete_video_cascades_to_every_run_pointing_at_it(
+    voice_client, gateway, repository
+):
+    await repository.create_run(make_run(VoiceRunPhase.TRAINING, voyicer_job_id="job7"))
+    await repository.create_run(
+        make_run(VoiceRunPhase.READY, id="run2", primary_character="chakotay")
+    )
+
+    response = voice_client.delete("/api/voice/videos/vid_abc123")
+
+    assert response.status_code == 204
+    assert gateway.cancelled_jobs == ["job7"]
+    assert gateway.deleted_videos == ["vid_abc123"]
+    assert await repository.get_run("run1") is None
+    assert await repository.get_run("run2") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_video_leaves_other_videos_runs_alone(
+    voice_client, gateway, repository
+):
+    await repository.create_run(
+        make_run(VoiceRunPhase.READY, id="run2", video_id="vid_other")
+    )
+
+    response = voice_client.delete("/api/voice/videos/vid_abc123")
+
+    assert response.status_code == 204
+    assert await repository.get_run("run2") is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_video_502s_when_the_factory_rejects_it(voice_client, gateway):
+    gateway.fail_with = VoiceFactoryError("no such video", status_code=404)
+
+    response = voice_client.delete("/api/voice/videos/vid_abc123")
+
+    assert response.status_code == 502
 
 
 # --- reconciler and phase transitions -------------------------------------
@@ -1172,24 +1234,79 @@ def test_voice_runs_keeps_no_fact_the_factory_owns():
     assert columns.isdisjoint(
         {"video_title", "speaker_map", "clip_count", "approved_count"}
     )
-    # the join to the factory, and the Voice map that has no factory twin
+    # the join to the factory
     assert "video_id" in columns
     assert VoiceRunRow.__table__.columns["video_id"].nullable
-    assert "voice_assignments" in columns
+    # and no speaker map of its own: that was a JSONB repeating group holding
+    # a second copy of what the speaker rows record
+    assert "voice_assignments" not in columns
 
 
-def test_voice_assignments_survive_the_row_round_trip():
-    """The one thing in this change that cannot be recomputed from the
-    factory, so the migration must carry it."""
+def test_a_speaker_is_a_row_and_its_label_is_not_a_key():
+    """The label is the factory's text. It is stored once, on the speaker, and
+    every association points at the speaker's id instead."""
+    speaker_columns = VoiceRunSpeakerRow.__table__.columns
+
+    assert speaker_columns["run_id"].foreign_keys
+    assert speaker_columns["voice_id"].foreign_keys
+    assert speaker_columns["voice_id"].nullable
+
+    contribution_columns = VoiceContributionRow.__table__.columns
+    assert contribution_columns["speaker_id"].foreign_keys
+    assert contribution_columns["voice_id"].foreign_keys
+    # not "speaker_label", and not a run id it would have to keep in step
+    assert "speaker_label" not in contribution_columns
+    assert "run_id" not in contribution_columns
+
+
+def test_voice_assignments_are_not_carried_by_the_run_row():
+    """The map is a projection now. A row round trip cannot produce it, which
+    is what stops a stale copy from being written back over the rows."""
     run = make_run(
         VoiceRunPhase.AWAITING_REVIEW,
-        voice_assignments={"SPEAKER_00": "voice1", "SPEAKER_01": None},
+        voice_assignments={"SPEAKER_00": "voice1"},
     )
 
     restored = _run_from_row(_row_from_run(run))
 
-    assert restored.voice_assignments == {"SPEAKER_00": "voice1", "SPEAKER_01": None}
+    assert restored.voice_assignments == {}
     assert restored.video_id == "vid_abc123"
+
+
+@pytest.mark.asyncio
+async def test_assigning_a_speaker_projects_back_onto_the_run():
+    """What the round trip above no longer carries, the repository rebuilds
+    from the speaker rows."""
+    contributions = InMemoryVoiceContributionRepository()
+
+    speaker_id = await contributions.assign_speaker("run1", "SPEAKER_00", "voice1")
+    again = await contributions.assign_speaker("run1", "SPEAKER_00", "voice1")
+
+    # the same label in the same run is the same speaker, every time
+    assert speaker_id == again
+
+
+@pytest.mark.asyncio
+async def test_recording_the_same_speaker_twice_leaves_one_row():
+    """An assign call sends the run's whole map, so most pairs in it are
+    already recorded."""
+    contributions = InMemoryVoiceContributionRepository()
+    speaker_id = await contributions.assign_speaker("run1", "SPEAKER_00", "voice1")
+    contribution = VoiceContribution(
+        id="c1",
+        voice_id="voice1",
+        speaker_id=speaker_id,
+        run_id="run1",
+        video_id="vid_abc123",
+        speaker_label="SPEAKER_00",
+        created_at=datetime(2026, 8, 1),
+    )
+
+    await contributions.create_contribution(contribution)
+    await contributions.create_contribution(contribution.model_copy(update={"id": "c2"}))
+
+    stored = await contributions.list_contributions_for_voice("voice1")
+    assert [row.id for row in stored] == ["c1"]
 
 
 # --- titles come from the factory ------------------------------------------

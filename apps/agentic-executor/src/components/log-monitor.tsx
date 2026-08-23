@@ -2,17 +2,45 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Radio, ChevronDown } from "lucide-react";
-import { useStudio } from "./studio-provider";
+import { useRunForVideo, useStudio } from "./studio-provider";
+import { useJobLog, useVideos, useVoiceRuns } from "@/lib/voice_api";
 import { formatClock } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { LogLine } from "@/lib/types";
 
 export function LogMonitor() {
-  const { logs, logFilter, setLogFilter, snapshot, connected } = useStudio();
+  const { logFilter, setLogFilter, selectedVideoId, selectedRunId } =
+    useStudio();
+  const videos = useVideos();
+  const runs = useVoiceRuns();
+  const runForVideo = useRunForVideo(selectedVideoId);
+  const runId = runForVideo?.id ?? selectedRunId ?? "";
+  const log = useJobLog(runId, Boolean(runId));
+  const connected = !runs.isError;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+
+  const videoList = useMemo(() => videos.data ?? [], [videos.data]);
+  const runList = useMemo(() => runs.data ?? [], [runs.data]);
+  /* The log route serves one plain text body, so the lines are cut here. The
+     offset is part of each id, which keeps keys stable as the file grows. */
+  const logs = useMemo<LogLine[]>(() => {
+    const offset = log.data?.offset ?? 0;
+    return (log.data?.content ?? "")
+      .split(/\r?\n/)
+      .map((message) => message.trim())
+      .filter((message) => message.length > 0)
+      .map((message, index) => ({
+        id: `${runId}-${offset}-${index}`,
+        key: runId,
+        ts: Date.now(),
+        message,
+      }));
+  }, [log.data, runId]);
+
   const filtered = useMemo(
     () =>
-      logFilter === "all" ? logs : logs.filter((log) => log.key === logFilter),
+      logFilter === "all" ? logs : logs.filter((line) => line.key === logFilter),
     [logs, logFilter],
   );
   useEffect(() => {
@@ -20,8 +48,8 @@ export function LogMonitor() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [filtered, autoScroll]);
   const keyLabel = (key: string) =>
-    snapshot.videos.find((video) => video.videoId === key)?.title ??
-    snapshot.runs.find((run) => run.id === key)?.primaryCharacter ??
+    videoList.find((video) => video.videoId === key)?.title ??
+    runList.find((run) => run.id === key)?.primaryCharacter ??
     key;
   return (
     <section className="flex h-full flex-col overflow-hidden bg-card">
@@ -46,12 +74,12 @@ export function LogMonitor() {
             className="appearance-none rounded-md border border-border bg-background py-1 pl-2 pr-6 font-mono text-[0.7rem] text-foreground"
           >
             <option value="all">all sources</option>
-            {snapshot.videos.map((video) => (
+            {videoList.map((video) => (
               <option key={video.videoId} value={video.videoId}>
                 {video.title}
               </option>
             ))}
-            {snapshot.runs.map((run) => (
+            {runList.map((run) => (
               <option key={run.id} value={run.id}>
                 {run.primaryCharacter}
               </option>

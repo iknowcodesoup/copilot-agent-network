@@ -230,12 +230,17 @@ export interface VoiceDetail {
   updatedAt: string
 }
 
+/* One speaker committed into one voice. Only voiceId and speakerId are
+   stored - runId, videoId and speakerLabel are joined in from the speaker's
+   own row, so nothing here is associated by name. */
 export interface VoiceContribution {
   id: string
   voiceId: string
+  speakerId: string
   runId: string
   videoId: string | null
   videoTitle: string | null
+  /** the voice factory's label for the speaker, for display only */
   speakerLabel: string
   createdAt: string
 }
@@ -252,13 +257,16 @@ export interface RunAssignResponse {
 // ---------------------------------------------------------------------------
 // UI-only extension shapes
 //
-// The wire types above describe individual API responses. The studio streams
-// a single aggregate snapshot over SSE, so these compose the wire types into
-// the shape the client consumes. They add no data the backend cannot supply:
+// The wire types above describe individual API responses. These two add the
+// linkage the list UI needs on top, and nothing the backend cannot supply:
 //   - StudioClip: a ClipSummary plus the run/video linkage + ordering the list
 //     UI needs. `audioUrl` is DERIVED (see lib/derive.ts), not stored.
 //   - LogLine: one decoded line of a JobLog's text stream, tagged with the run
 //     it came from so the monitor can filter by source.
+//
+// There is no aggregate Snapshot type. Components read the query hooks in
+// lib/voice_api.ts directly, which is the one reactive source - the event
+// stream writes pushed updates straight into that cache.
 // ---------------------------------------------------------------------------
 
 export interface StudioClip extends ClipSummary {
@@ -276,12 +284,4 @@ export interface LogLine {
   key: string
   ts: number
   message: string
-}
-
-export interface Snapshot {
-  runs: VoiceRun[]
-  videos: VideoSummary[]
-  clips: StudioClip[]
-  voices: VoiceDetail[]
-  training: TrainingProgress[]
 }

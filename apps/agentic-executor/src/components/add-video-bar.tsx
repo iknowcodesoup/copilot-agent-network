@@ -3,26 +3,33 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useStudio } from "@/components/studio-provider";
-import { openVideoThenContinue } from "@/lib/watch_gate";
+import { useStartRun } from "@/lib/voice_api";
 
 export function AddVideoBar() {
-  const { addVideo, setView } = useStudio();
+  const { setView } = useStudio();
+  const startRun = useStartRun();
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const v = url.trim();
-    if (!v || busy) return;
+    const sourceUrl = url.trim();
+    if (!sourceUrl || busy) return;
     setBusy(true);
-    /* Same gate the search view uses: play the video by hand, close the tab,
-       then the ingest runs. */
-    await openVideoThenContinue(v);
-    const created = await addVideo(v);
-    setBusy(false);
-    if (created) {
+    try {
+      /* POST /runs answers with the new run. The old wrapper looked the id up
+         in the runs list instead, which has not refetched yet, so it read as
+         a failure and the field never cleared. */
+      await startRun.mutateAsync({
+        primaryCharacter: "default",
+        sourceUrl,
+        diarize: true,
+        numSpeakers: null,
+      });
       setUrl("");
       setView("videos");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -44,6 +51,11 @@ export function AddVideoBar() {
       >
         {busy ? "Queuing…" : "Process video"}
       </Button>
+      {startRun.isError && (
+        <span role="alert" className="text-xs text-destructive">
+          {startRun.error.message}
+        </span>
+      )}
     </form>
   );
 }

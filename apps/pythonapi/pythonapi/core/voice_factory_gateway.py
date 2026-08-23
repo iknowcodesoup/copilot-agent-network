@@ -194,6 +194,10 @@ class VoiceFactoryGateway:
         payload = await self._request("GET", "/videos")
         return list(payload["videos"])
 
+    async def delete_video(self, video_id: str) -> None:
+        """Remove a video's directory: audio, clips, review.csv. Irreversible."""
+        await self._request("DELETE", f"/videos/{video_id}")
+
     async def get_video_speakers(self, video_id: str) -> list[dict]:
         """One video's speaker labels, unmodelled for the same reason as
         list_videos above."""

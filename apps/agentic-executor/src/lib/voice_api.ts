@@ -71,6 +71,23 @@ function toSnakeCase(value: string): string {
   return value.replace(/[A-Z]/g, (character) => `_${character.toLowerCase()}`);
 }
 
+/*
+ * Fields whose object values are keyed by data, not by field name. Their keys
+ * must survive the converter untouched.
+ *
+ * voice_assignments is keyed by speaker label. toCamelCase matches _[a-z0-9],
+ * so it rewrote SPEAKER_00 to SPEAKER00 on every read - which then matched no
+ * clip.speakerLabel, and made an assignment that was stored correctly look
+ * like it had never happened. speakerMapBody below guards the same labels on
+ * the way out.
+ */
+const DATA_KEYED_MAPS: ReadonlySet<string> = new Set([
+  "voice_assignments",
+  "voiceAssignments",
+  "speaker_map",
+  "speakerMap",
+]);
+
 function convertKeys(
   value: unknown,
   convert: (key: string) => string,
@@ -82,7 +99,7 @@ function convertKeys(
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
         convert(key),
-        convertKeys(entry, convert),
+        DATA_KEYED_MAPS.has(key) ? entry : convertKeys(entry, convert),
       ]),
     );
   }
@@ -359,6 +376,22 @@ export function useRenameVideo(videoId: string) {
   });
 }
 
+/* Delete a video and every run pointing at it, in the one typed pythonapi
+   route that can reach both Postgres and the factory. Unlike rename, this
+   cannot go straight to voiceFactoryBase - a run row here would otherwise
+   dangle once the video it points at is gone. */
+export function useDeleteVideo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (videoId: string) =>
+      request<void>(`/videos/${videoId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.videos });
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.runs });
+    },
+  });
+}
+
 export function useApproveRun(runId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -478,12 +511,16 @@ export function useCommitRun(runId: string) {
 
 /* Every voice, for the Voices view's card grid (Story 3.6). limit=50 is the
    route's max, and an empty query matches everything, same contract
-   useVoices already relies on for the assign-speaker combobox. */
+   useVoices already relies on for the assign-speaker combobox.
+
+   Each voice carries its contributions, so a card says what the voice is made
+   of without one detail request per card. Contribution video titles are the
+   detail route's job - they cost a factory call each. */
 export function useVoiceList() {
   return useQuery({
     queryKey: voiceQueryKeys.voiceList,
     queryFn: () =>
-      request<VoiceSummary[]>("?query=&limit=50", undefined, voicesApiBase),
+      request<VoiceDetail[]>("?query=&limit=50", undefined, voicesApiBase),
   });
 }
 
@@ -502,18 +539,21 @@ export function useVoiceDetail(voiceId: string) {
    train_voice: always accepted). The card refetches both this voice's
    detail and the list afterward so the phase shows without a page
    reload. */
-export function useTrainVoice(voiceId: string) {
+export function useTrainVoice() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (voiceId: string) =>
       request<{ id: string; phase: VoicePhase }>(
         `/${voiceId}/train`,
         { method: "POST" },
         voicesApiBase,
       ),
-    onSuccess: () => {
+    /* The voice comes in as the mutation's variable rather than a hook
+       argument, so the assistant can train a voice it only resolves once the
+       operator names it. */
+    onSuccess: ({ id }) => {
       queryClient.invalidateQueries({
-        queryKey: voiceQueryKeys.voiceDetail(voiceId),
+        queryKey: voiceQueryKeys.voiceDetail(id),
       });
       queryClient.invalidateQueries({ queryKey: voiceQueryKeys.voiceList });
     },

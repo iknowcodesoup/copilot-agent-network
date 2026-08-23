@@ -1,30 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Mic, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStudio } from "./studio-provider";
+import { useCreateVoice, useVoiceList } from "@/lib/voice_api";
 import { VoiceCard } from "./voice-card";
 import { TrainingPanel } from "./training-panel";
 
 export function VoicesView() {
-  const { snapshot, selectedVoiceId, setSelectedVoiceId, createVoice } =
-    useStudio();
-  const voices = snapshot.voices;
+  const { selectedVoiceId, setSelectedVoiceId } = useStudio();
+  const voiceList = useVoiceList();
+  const createVoice = useCreateVoice();
+  const voices = useMemo(() => voiceList.data ?? [], [voiceList.data]);
   const [newName, setNewName] = useState("");
 
   useEffect(() => {
     if (!selectedVoiceId && voices.length > 0) setSelectedVoiceId(voices[0].id);
   }, [voices, selectedVoiceId, setSelectedVoiceId]);
 
-  const selected = voices.find((v) => v.id === selectedVoiceId) ?? null;
+  const selected = voices.find((voice) => voice.id === selectedVoiceId) ?? null;
 
+  /* Selecting the new voice by the id the POST returns. The list refetches on
+     its own - waiting for it here just to read back an id we already have is
+     what the removed wrapper did, with a hand-built stand-in object. */
   const onCreate = async () => {
     const name = newName.trim();
     if (!name) return;
-    const v = await createVoice(name);
+    const created = await createVoice.mutateAsync(name);
     setNewName("");
-    if (v) setSelectedVoiceId(v.id);
+    setSelectedVoiceId(created.id);
   };
 
   return (
@@ -48,10 +53,20 @@ export function VoicesView() {
               placeholder="New voice name"
               className="w-40 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             />
-            <Button size="sm" variant="outline" onClick={onCreate}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onCreate}
+              disabled={createVoice.isPending}
+            >
               <Plus /> Add
             </Button>
           </div>
+          {createVoice.isError && (
+            <span role="alert" className="w-full text-xs text-destructive">
+              {createVoice.error.message}
+            </span>
+          )}
         </div>
 
         {voices.length === 0 ? (

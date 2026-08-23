@@ -9,12 +9,30 @@ import type { StudioClip } from "@/lib/types";
 import { clipAudioUrl, useUpdateClips } from "@/lib/voice_api";
 
 /*
- * Clip writes target clip.videoId directly, never useStudio's activeVideoId.
- * That "active" id is StudioProvider's own fallback guess (first run's video)
- * and can name a different video than the one this row is actually showing,
- * which was silently sending edits to the wrong video's clips.
+ * Clip writes target clip.videoId directly, never a shared "active" video id.
+ * That id used to be StudioProvider's own fallback guess (first run's video)
+ * and could name a different video than the one this row is actually showing,
+ * which silently sent edits to the wrong video's clips.
+ *
+ * Assignment is not a clip write. A voice is bound to a speaker label, so the
+ * combobox reports the label and the voice id and the table records the pair.
+ * The row used to write the voice's NAME onto the clip and drop the id, which
+ * left the name in review.csv and no row joining the voice to anything.
  */
-export function ClipRow({ clip }: { clip: StudioClip }) {
+export function ClipRow({
+  clip,
+  assignedVoiceName,
+  onAssignSpeaker,
+  assigning,
+}: {
+  clip: StudioClip;
+  /* resolved from the run's assignments by voice id, never stored on the clip */
+  assignedVoiceName: string | null;
+  /* null when the clip has no speaker label - there is nothing to bind a
+     voice to, and keying the pair on a clip id would invent a speaker */
+  onAssignSpeaker: ((voiceId: string) => void) | null;
+  assigning: boolean;
+}) {
   const updateClips = useUpdateClips(clip.videoId);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(clip.text);
@@ -27,10 +45,7 @@ export function ClipRow({ clip }: { clip: StudioClip }) {
     if (text.trim() && text !== clip.text)
       updateClips.mutate([{ clipId: clip.clipId, text: text.trim() }]);
   };
-  /* One clip, one assignment. It is written on the clip itself, so picking a
-     voice here moves this clip and no other. */
-  const assignVoice = (_voiceId: string, voiceName: string) =>
-    updateClips.mutate([{ clipId: clip.clipId, assignedVoice: voiceName }]);
+  const error = updateClips.isError ? updateClips.error.message : null;
 
   return (
     <div
@@ -44,20 +59,34 @@ export function ClipRow({ clip }: { clip: StudioClip }) {
         <span className="font-mono text-[0.7rem] text-muted-foreground/60">
           #{String(clip.index).padStart(2, "0")}
         </span>
-        <VoiceSpeakerCombobox
-          speakerLabel={clip.speakerLabel ?? clip.clipId}
-          assignedVoiceName={clip.assignedVoice}
-          onSelect={assignVoice}
-        />
+        {clip.speakerLabel && onAssignSpeaker ? (
+          <VoiceSpeakerCombobox
+            speakerLabel={clip.speakerLabel}
+            assignedVoiceName={assignedVoiceName}
+            onSelect={(voiceId) => onAssignSpeaker(voiceId)}
+          />
+        ) : (
+          <span
+            className="rounded-md border border-dashed border-border px-1.5 py-0.5 font-mono text-[0.65rem] text-muted-foreground"
+            title="Diarization gave this clip no speaker, so no voice can be bound to it."
+          >
+            no speaker
+          </span>
+        )}
+        {assigning && (
+          <span className="font-mono text-[0.65rem] text-muted-foreground">
+            assigning…
+          </span>
+        )}
         {/* A rejected write must say so. Swallowing it is what made a failed
             assignment look like a dead control. */}
-        {updateClips.isError && (
+        {error && (
           <span
             role="alert"
             className="max-w-xs truncate text-[0.65rem] text-destructive"
-            title={updateClips.error.message}
+            title={error}
           >
-            {updateClips.error.message}
+            {error}
           </span>
         )}
         {clip.flagged && (

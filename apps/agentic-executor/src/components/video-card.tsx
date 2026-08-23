@@ -1,10 +1,78 @@
 "use client";
 
-import { Film, Scissors } from "lucide-react";
+import { Film, MoreVertical, Play, Scissors, Trash2 } from "lucide-react";
 import { StatusPill } from "./status-pill";
-import { WatchLink } from "./watch-link";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLinkItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useDeleteVideo } from "@/lib/voice_api";
 import type { VideoSummary, VoiceRunPhase } from "@/lib/types";
+
+/*
+ * Watch, Delete, and room for whatever comes next - one overflow menu rather
+ * than a growing row of icon buttons on a card this narrow. Stops its own
+ * clicks from reaching the card's onSelect, which sits underneath it.
+ */
+function VideoCardMenu({
+  video,
+  watchUrl,
+  className,
+}: {
+  video: VideoSummary;
+  watchUrl: string | null;
+  className?: string;
+}) {
+  const deleteVideo = useDeleteVideo();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        onClick={(event) => event.stopPropagation()}
+        className={cn(
+          "inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:border-primary/40 hover:text-foreground",
+          className,
+        )}
+        title="More options"
+      >
+        <MoreVertical className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent onClick={(event) => event.stopPropagation()}>
+        {watchUrl && (
+          <DropdownMenuLinkItem href={watchUrl} target="_blank" rel="noreferrer">
+            <Play />
+            Watch
+          </DropdownMenuLinkItem>
+        )}
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={deleteVideo.isPending}
+          onClick={() => {
+            if (
+              !window.confirm(
+                `Delete "${video.title}"? This deletes it and any run using it. It cannot be undone.`,
+              )
+            )
+              return;
+            deleteVideo.mutate(video.videoId);
+          }}
+        >
+          <Trash2 />
+          {deleteVideo.isPending ? "Deleting…" : "Delete"}
+        </DropdownMenuItem>
+        {deleteVideo.isError && (
+          <p className="max-w-48 px-2 py-1 text-[0.7rem] text-destructive">
+            {(deleteVideo.error as Error).message}
+          </p>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function toneForPhase(
   phase: VoiceRunPhase,
@@ -66,9 +134,11 @@ export function VideoCard({
         )}
         <Film className="absolute left-3 top-2 size-3.5 text-muted-foreground/60" />
         <div className="absolute inset-0 bg-background/35" />
-        {watchUrl && (
-          <WatchLink url={watchUrl} className="absolute right-2 top-2" />
-        )}
+        <VideoCardMenu
+          video={video}
+          watchUrl={watchUrl}
+          className="absolute right-2 top-2"
+        />
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="flex items-start justify-between gap-2">

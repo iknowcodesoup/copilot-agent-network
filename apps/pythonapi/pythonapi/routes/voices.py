@@ -68,15 +68,29 @@ async def search_voices(
     query: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=50),
     repository: VoiceRepository = Depends(get_required_voice_repository),
+    contribution_repository: VoiceContributionRepository = Depends(
+        get_required_voice_contribution_repository
+    ),
 ):
-    """List or search voices by name, for the assign-speaker combobox
-    (Story 3.5).
+    """List or search voices by name, each with the speakers committed into it.
 
     An empty query matches every voice, same as search_videos's contract
     elsewhere in this service - the combobox opens with an empty query and
     shows something instead of nothing.
+
+    The contributions come back here and not only from GET /{id}, because the
+    Voices card grid shows what each voice is made of. Without them every card
+    read an empty list and reported a voice with no clips. One batched query
+    covers the whole page. Video titles stay behind on purpose - each costs a
+    factory call, and only the detail view shows them.
     """
-    return await repository.search_voices(query, limit)
+    voices = await repository.search_voices(query, limit)
+    grouped = await contribution_repository.list_contributions_for_voices(
+        [voice.id for voice in voices]
+    )
+    for voice in voices:
+        voice.contributions = grouped.get(voice.id, [])
+    return voices
 
 
 @router.get("/{voice_id}", response_model=Voice)

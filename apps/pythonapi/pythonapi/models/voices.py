@@ -45,21 +45,28 @@ class VoiceRequest(BaseModel):
 
 
 class VoiceContribution(BaseModel):
-    """One video's clips, committed under one speaker label, into one voice.
+    """One speaker, committed into one voice.
 
     The audit trail Story 3.2 introduces (FR19): every row traces back to the
     run and video that produced it. Append-only - see
     repositories/voice_contributions.py.
+
+    Only voice_id and speaker_id are stored. run_id, video_id and
+    speaker_label all come from the speaker's own row, joined at read time -
+    the association itself is id to id.
     """
 
     id: str
     voice_id: str
+    speaker_id: str
     run_id: str
     video_id: str | None = None
     # not stored: the factory owns the title, so a reader resolves it from
     # video_id at read time -- see core/video_titles.py. None when the factory
     # is unset or no longer holds that video.
     video_title: str | None = None
+    # the factory's label for the speaker, carried for display only. Nothing
+    # joins on it.
     speaker_label: str
     created_at: datetime
 

@@ -6,7 +6,6 @@ live in Qdrant only (see repositories/qdrant.py).
 from datetime import datetime
 
 from sqlalchemy import ARRAY, ForeignKey, Index, String, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -99,10 +98,10 @@ class VoiceRunRow(Base):
     phase: Mapped[str]
     diarize: Mapped[bool] = mapped_column(default=True)
     num_speakers: Mapped[int | None]
-    # speaker label -> Voice id (Story 3.2), or None to discard that speaker.
-    # DB-only, and the factory has no Voice concept, so nothing there mirrors
-    # it - see VoiceRun.voice_assignments.
-    voice_assignments: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # No voice_assignments column. It was a JSONB map of speaker label to voice
+    # id, which is a repeating group in one column and a second copy of what
+    # voice_contributions already records. VoiceRun.voice_assignments is still
+    # on the wire, projected from the rows below at read time.
     # the control API job backing the current phase, if one is running
     voyicer_job_id: Mapped[str | None]
     # DOWNLOADING runs the ingest steps in order (download, transcribe, chunk,
@@ -162,25 +161,63 @@ class VoiceRow(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class VoiceRunSpeakerRow(Base):
+    """One speaker diarization separated out of one run's video.
+
+    The reason this table exists: `label` is the voice factory's identifier
+    for the speaker (SPEAKER_00), and it is text. Every association used to
+    key on that text directly. Here it is stored once, in one row per speaker
+    per run, and everything else joins on `id`.
+
+    A run owns its speakers, so the label only has to be unique inside the
+    run - two different videos both start at SPEAKER_00.
+    """
+
+    __tablename__ = "voice_run_speakers"
+    __table_args__ = (
+        Index("idx_voice_run_speakers_run_id", "run_id"),
+        UniqueConstraint("run_id", "label", name="uq_voice_run_speakers_key"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("voice_runs.id", ondelete="CASCADE"))
+    # the factory's external key for this speaker. Stored, never referenced.
+    label: Mapped[str]
+    # Which voice this speaker currently belongs to, or None for unassigned.
+    # One speaker has one voice, so it is a plain column here rather than a
+    # row somewhere else. voice_contributions keeps the history of what this
+    # was set to and when; this is only what it is now.
+    voice_id: Mapped[str | None] = mapped_column(
+        ForeignKey("voices.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class VoiceContributionRow(Base):
-    """One video's clips committed into one voice, under one speaker label.
+    """One speaker committed into one voice, once.
 
     Append-only (Story 3.2): no update method exists on the repository, only
     create_contribution and read queries. This is the audit trail FR19 asks
     for - which video contributed which speaker to which voice, and when.
+    Where a speaker points *now* is voice_run_speakers.voice_id; this is the
+    history of how it got there, so reassigning a speaker adds a row rather
+    than rewriting one.
+
+    There is no run_id here. The speaker already belongs to a run, so storing
+    it again would be a transitive dependency that two writers could
+    disagree on. Readers join through voice_run_speakers for it.
     """
 
     __tablename__ = "voice_contributions"
     __table_args__ = (
         Index("idx_voice_contributions_voice_id", "voice_id"),
-        Index("idx_voice_contributions_run_id", "run_id"),
-        UniqueConstraint(
-            "voice_id", "run_id", "speaker_label", name="uq_voice_contributions_key"
-        ),
+        Index("idx_voice_contributions_speaker_id", "speaker_id"),
+        UniqueConstraint("voice_id", "speaker_id", name="uq_voice_contributions_key"),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
     voice_id: Mapped[str] = mapped_column(ForeignKey("voices.id", ondelete="CASCADE"))
-    run_id: Mapped[str] = mapped_column(ForeignKey("voice_runs.id", ondelete="CASCADE"))
-    speaker_label: Mapped[str]
+    speaker_id: Mapped[str] = mapped_column(
+        ForeignKey("voice_run_speakers.id", ondelete="CASCADE")
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

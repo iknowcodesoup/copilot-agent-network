@@ -106,6 +106,31 @@ async def get_video_speaker_board(
     return build_speaker_board(video_clips)
 
 
+@router.delete("/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_video(
+    video_id: str,
+    gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
+    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
+):
+    """Delete a video and every run pointing at it.
+
+    The video's files live on the factory host; its runs live in Postgres.
+    Deleting only one side would either orphan a run or leave a video the
+    operator can no longer act on, so this does both. Runs go first, the same
+    way delete_run cancels a live job before dropping the row.
+    """
+    for run in await repository.list_runs_for_video(video_id):
+        if run.voyicer_job_id:
+            with suppress(VoiceFactoryError):
+                await gateway.cancel_job(run.voyicer_job_id)
+        await repository.delete_run(run.id)
+
+    try:
+        await gateway.delete_video(video_id)
+    except VoiceFactoryError as error:
+        raise _unavailable(error) from error
+
+
 @router.post(
     "/runs",
     response_model=VoiceRunResponse,
@@ -272,26 +297,36 @@ async def assign_run(
             status.HTTP_400_BAD_REQUEST, "Assign at least one speaker"
         )
 
-    run.voice_assignments = assign_request.assignments
-
     titles = await resolve_video_titles(gateway, [run.video_id])
 
     now = datetime.now(UTC)
-    contributions = [
-        VoiceContribution(
-            id=uuid.uuid4().hex,
-            voice_id=voice_id,
-            run_id=run.id,
-            video_id=run.video_id,
-            video_title=titles.get(run.video_id),
-            speaker_label=speaker_label,
-            created_at=now,
+    contributions = []
+    for speaker_label, voice_id in assigned_speakers.items():
+        # The label is the factory's. Turning it into a speaker id here is
+        # what keeps every stored association id to id - nothing below this
+        # line joins on text.
+        speaker_id = await contribution_repository.assign_speaker(
+            run.id, speaker_label, voice_id
         )
-        for speaker_label, voice_id in assigned_speakers.items()
-    ]
+        contributions.append(
+            VoiceContribution(
+                id=uuid.uuid4().hex,
+                voice_id=voice_id,
+                speaker_id=speaker_id,
+                run_id=run.id,
+                video_id=run.video_id,
+                video_title=titles.get(run.video_id),
+                speaker_label=speaker_label,
+                created_at=now,
+            )
+        )
     for contribution in contributions:
         await contribution_repository.create_contribution(contribution)
 
+    # The rows above are the record. This keeps the response and the in-memory
+    # repository in step with what a Postgres read will project back, which is
+    # the assigned speakers only - a discarded one has no contribution row.
+    run.voice_assignments = dict(assigned_speakers)
     await repository.update_run(run)
     return RunAssignResponse(
         run_id=run.id,

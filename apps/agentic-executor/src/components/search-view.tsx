@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Film, Play, Search as SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { openVideoThenContinue } from "@/lib/watch_gate";
 import { useStartRun, useVideoSearch, type VideoResult } from "@/lib/voice_api";
 import { WatchLink } from "./watch-link";
 import { useStudio } from "./studio-provider";
@@ -113,9 +112,6 @@ export function SearchView() {
   async function start(video: VideoResult) {
     if (startingVideoId) return;
     setStartingVideoId(video.videoId);
-    /* Opens the video and waits for the operator to close that tab. A download
-       that failed goes on to succeed once the video has been played by hand. */
-    await openVideoThenContinue(video.url);
     startRun.mutate(
       {
         primaryCharacter: character.trim() || DEFAULT_CHARACTER,
@@ -175,8 +171,7 @@ export function SearchView() {
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/50 px-3 py-2">
           <Play className="size-3.5 shrink-0 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">
-            Start run opens the video on YouTube. Play it, then close the tab and
-            processing begins.
+            Start run downloads the video's audio and begins processing.
           </p>
           <label
             htmlFor="search-character"
