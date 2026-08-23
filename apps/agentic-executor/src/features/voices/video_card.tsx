@@ -77,7 +77,10 @@ function VideoCardMenu({
 
 /* The video describes itself, counts included: they come from the factory,
    which recomputes them from review.csv. phase is null for a video no run has
-   claimed - ingested for one character, and offered to the next. */
+   claimed - ingested for one character, and offered to the next.
+
+   Compact list row, not a grid tile: this sits in VideoListPanel's w-80
+   scrolling column, one video per row rather than a thumbnail-first card. */
 export function VideoCard({
   video,
   phase,
@@ -95,8 +98,9 @@ export function VideoCard({
 }) {
   const tone = phase ? toneForPhase(phase) : null;
   return (
-    /* A div, not a button: the Watch link nests inside, and an anchor inside a
-       button is invalid markup that browsers resolve unpredictably. */
+    /* A div, not a button: VideoCardMenu's Watch link nests inside, and an
+       anchor inside a button is invalid markup that browsers resolve
+       unpredictably. */
     <div
       role="button"
       tabIndex={0}
@@ -108,14 +112,14 @@ export function VideoCard({
         }
       }}
       className={cn(
-        "group flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-card text-left transition-all",
+        "group flex cursor-pointer items-center gap-2.5 rounded-lg border p-2 text-left transition-colors",
         selected
-          ? "border-primary/60 ring-1 ring-primary/40"
-          : "border-border hover:border-primary/30",
+          ? "border-primary/60 bg-primary/5 ring-1 ring-primary/30"
+          : "border-transparent hover:border-border hover:bg-muted/40",
       )}
     >
-      <div className="relative flex h-20 items-end overflow-hidden bg-muted/30 px-3 pb-3 pt-6">
-        {video.thumbnailUrl && (
+      <div className="relative size-11 shrink-0 overflow-hidden rounded-md bg-muted/30">
+        {video.thumbnailUrl ? (
           // a plain img, not next/image: next/image needs every remote host
           // declared up front, and YouTube serves thumbnails from several domains
           <img
@@ -123,41 +127,31 @@ export function VideoCard({
             alt=""
             className="absolute inset-0 size-full object-cover"
           />
+        ) : (
+          <Film className="absolute inset-0 m-auto size-4 text-muted-foreground/60" />
         )}
-        <Film className="absolute left-3 top-2 size-3.5 text-muted-foreground/60" />
-        <div className="absolute inset-0 bg-background/35" />
-        <VideoCardMenu
-          video={video}
-          watchUrl={watchUrl}
-          className="absolute right-2 top-2"
-        />
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-medium text-foreground">
-              {video.title}
-            </h3>
-            <p className="truncate font-mono text-[0.7rem] text-muted-foreground">
-              {video.channel ?? "Unknown channel"}
-            </p>
-          </div>
-          {tone ? (
-            <StatusPill tone={tone} pulse={tone === "in-progress"} />
-          ) : (
-            <StatusPill tone="queued" label="not started" />
-          )}
-        </div>
-        <div className="flex items-center justify-between font-mono text-[0.7rem] text-muted-foreground">
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-sm font-medium text-foreground">
+          {video.title}
+        </h3>
+        <div className="flex items-center gap-2 font-mono text-[0.7rem] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <Scissors className="size-3" />
-            {video.clipCount} clips
+            {video.clipCount}
           </span>
-          {video.durationSec != null && (
-            <span>{Math.round(video.durationSec / 60)} min</span>
+          {tone ? (
+            <StatusPill
+              tone={tone}
+              pulse={tone === "in-progress"}
+              className="px-1.5 py-0"
+            />
+          ) : (
+            <StatusPill tone="queued" label="not started" className="px-1.5 py-0" />
           )}
         </div>
       </div>
+      <VideoCardMenu video={video} watchUrl={watchUrl} />
     </div>
   );
 }

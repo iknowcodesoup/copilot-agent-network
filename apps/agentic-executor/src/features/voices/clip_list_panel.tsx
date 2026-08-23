@@ -15,12 +15,16 @@ type Filter = "all" | "kept" | "review" | "flagged";
  * and is shared by every character that claims it. runId is null for a video no
  * run has claimed - the clips still read, and only the run actions go away.
  */
-export function ClipTable({
+export function ClipListPanel({
   videoId,
   runId,
+  selectedClipId,
+  onSelectClip,
 }: {
   videoId: string;
   runId: string | null;
+  selectedClipId: string | null;
+  onSelectClip: (clipId: string) => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   /* Which speaker is mid-assign. The mutation alone cannot say: its variables
@@ -70,19 +74,19 @@ export function ClipTable({
 
   if (board.isLoading)
     return (
-      <p className="p-6 text-center text-sm text-muted-foreground">
+      <p className="min-h-0 flex-1 p-6 text-center text-sm text-muted-foreground">
         Loading clips…
       </p>
     );
   if (board.isError)
     return (
-      <p className="rounded-lg border border-destructive/30 p-6 text-center text-sm text-destructive">
+      <p className="min-h-0 flex-1 rounded-lg border border-destructive/30 p-6 text-center text-sm text-destructive">
         Unable to load clips.
       </p>
     );
   if (clips.length === 0)
     return (
-      <div className="rounded-lg border border-dashed border-border p-8 text-center">
+      <div className="min-h-0 flex-1 rounded-lg border border-dashed border-border p-8 text-center">
         <p className="text-sm text-muted-foreground">
           No clips yet — they appear once diarization completes.
         </p>
@@ -96,7 +100,7 @@ export function ClipTable({
     flagged: clips.filter((c) => c.flagged).length,
   };
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
       <div className="flex flex-wrap items-center gap-1.5">
         {(["all", "kept", "review", "flagged"] as Filter[]).map((key) => (
           <button
@@ -135,7 +139,7 @@ export function ClipTable({
         </p>
       )}
       <div className="flex flex-col gap-2">
-        {shown.map((clip) => {
+        {shown.map((clip, position) => {
           const assignedVoiceId = clip.speakerLabel
             ? (voiceAssignments[clip.speakerLabel] ?? null)
             : null;
@@ -143,14 +147,10 @@ export function ClipTable({
           return (
             <ClipRow
               key={clip.clipId}
-              clip={
-                {
-                  ...clip,
-                  runId: runId ?? "",
-                  videoId,
-                  index: clip.startSec ?? 0,
-                } as StudioClip
-              }
+              clip={{ ...clip, runId: runId ?? "", videoId } as StudioClip}
+              ordinal={position + 1}
+              selected={clip.clipId === selectedClipId}
+              onSelect={() => onSelectClip(clip.clipId)}
               assignedVoiceName={
                 assignedVoiceId
                   ? (voiceNameById.get(assignedVoiceId) ?? null)

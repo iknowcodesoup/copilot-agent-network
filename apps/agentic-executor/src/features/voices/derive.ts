@@ -18,3 +18,14 @@ export function toneForPhase(
   if (phase === "awaiting_review") return "queued"
   return "in-progress"
 }
+
+const YOUTUBE_URL_PATTERN =
+  /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{11})/
+
+/** Pull the 11-character video id out of any YouTube URL shape the factory
+    hands back, for the iframe embed. Null for a URL that is not YouTube's -
+    the embed has nothing to show, not a broken player. */
+export function youtubeVideoId(url: string | null): string | null {
+  if (!url) return null
+  return url.match(YOUTUBE_URL_PATTERN)?.[1] ?? null
+}

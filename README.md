@@ -10,7 +10,7 @@ review dashboard for the clip data.
 > the largest open item — the front end and the agent endpoint talk to each
 > other, but the full streamed chat experience is still being built out.
 
-![Voice Studio dashboard — human-in-the-loop review of diarized clips, with a copilot chat panel and a live pipeline log](assets/wip_ui.2.png)
+![Voice Studio dashboard — human-in-the-loop review of diarized clips, with a copilot chat panel and a live pipeline log](assets/wip_ui.3.png)
 
 _The Voice Studio dashboard: a video queues for processing, clips come back
 diarized and flagged for review, and an embedded copilot can drive the whole

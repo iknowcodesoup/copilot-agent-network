@@ -15,10 +15,9 @@ import { useStudio } from "@/features/chat/studio_provider";
    where a speaker gets its real name, so naming one up front is not required. */
 const DEFAULT_CHARACTER = "default";
 
-/* One search result. Same card shape as VideoCard's ingested-video grid, so a
-   video looks the same whether you are picking it or already watching it
-   process. Double-click starts it, and so does the button - one click only
-   selects, so the grid stays browsable. */
+/* One search result, in a grid - unlike VideoCard, which moved to a compact
+   list row for the two-pane videos view. Double-click starts it, and so does
+   the button - one click only selects, so the grid stays browsable. */
 function SearchResultCard({
   video,
   selected,

@@ -43,8 +43,51 @@
 }
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   --radius: 0.5rem;
+
+  /* Clean light console, same violet accent hue as dark */
+  --background: oklch(0.985 0.003 275);
+  --foreground: oklch(0.2 0.014 275);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.014 275);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.014 275);
+
+  /* Violet accent for active / streaming states */
+  --primary: oklch(0.55 0.2 293);
+  --primary-foreground: oklch(0.98 0.01 293);
+
+  --secondary: oklch(0.94 0.006 275);
+  --secondary-foreground: oklch(0.2 0.014 275);
+
+  --muted: oklch(0.95 0.005 275);
+  --muted-foreground: oklch(0.46 0.02 273);
+
+  --accent: oklch(0.92 0.03 293);
+  --accent-foreground: oklch(0.3 0.05 293);
+
+  --destructive: oklch(0.55 0.22 22);
+  --destructive-foreground: oklch(0.98 0.01 22);
+
+  --success: oklch(0.52 0.16 155);
+  --success-foreground: oklch(0.98 0.02 155);
+
+  --warn: oklch(0.62 0.16 78);
+  --warn-foreground: oklch(0.2 0.03 78);
+
+  --info: oklch(0.55 0.14 235);
+  --info-foreground: oklch(0.98 0.01 235);
+
+  --border: oklch(0 0 0 / 8%);
+  --input: oklch(0 0 0 / 10%);
+  --ring: oklch(0.55 0.2 293);
+}
+
+.dark {
+  color-scheme: dark;
 
   /* Near-black technical console */
   --background: oklch(0.17 0.012 275);

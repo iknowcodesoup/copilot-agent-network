@@ -138,6 +138,7 @@ export interface ClipSummary {
   startSec: number | null
   endSec: number | null
   text: string
+  excludedReason: string
 }
 
 export interface SpeakerGroup {
@@ -191,6 +192,9 @@ export interface ClipDecision {
   /* empty string clears the assignment */
   assignedVoice?: string | null
   text?: string
+  /* a trim from the review UI; both must be given together */
+  startSec?: number
+  endSec?: number
 }
 
 // ── Durable Voice entity ───────────────────────────────────────────────────
@@ -259,8 +263,8 @@ export interface RunAssignResponse {
 //
 // The wire types above describe individual API responses. These two add the
 // linkage the list UI needs on top, and nothing the backend cannot supply:
-//   - StudioClip: a ClipSummary plus the run/video linkage + ordering the list
-//     UI needs. `audioUrl` is DERIVED (see clipAudioUrl in voice_api.ts), not stored.
+//   - StudioClip: a ClipSummary plus the run/video linkage the list UI needs.
+//     `audioUrl` is DERIVED (see clipAudioUrl in voice_api.ts), not stored.
 //   - LogLine: one decoded line of a JobLog's text stream, tagged with the run
 //     it came from so the monitor can filter by source.
 //
@@ -274,8 +278,6 @@ export interface StudioClip extends ClipSummary {
   runId: string
   /** video the run ingested, for grouping in the UI */
   videoId: string
-  /** stable ordering within the run */
-  index: number
 }
 
 export interface LogLine {

@@ -385,6 +385,26 @@ def test_speaker_board_names_the_character_from_the_factory_map(voice_client, ga
     assert speakers[1]["assigned_character"] is None
 
 
+def test_get_clips_carries_excluded_reason_through_to_the_speaker_board(
+    voice_client, gateway
+):
+    """excluded_reason enters at the fake gateway's get_clips (the factory
+    boundary) and must reach the browser through ClipSummary and the
+    speaker-board grouping with no edit -- the same "field absent here never
+    reaches the browser" contract as every other ClipSummary field."""
+    excluded_clip = clip("clip_0001", "SPEAKER_00")
+    excluded_clip.excluded_reason = "too_short"
+    gateway.clips = [excluded_clip, clip("clip_0002", "SPEAKER_00")]
+
+    response = voice_client.get("/api/voice/videos/vid_abc123/clips")
+
+    assert response.status_code == 200
+    clips = response.json()["speakers"][0]["clips"]
+    by_id = {c["clip_id"]: c for c in clips}
+    assert by_id["clip_0001"]["excluded_reason"] == "too_short"
+    assert by_id["clip_0002"]["excluded_reason"] == ""
+
+
 @pytest.mark.asyncio
 async def test_speaker_board_is_shared_across_characters_for_the_same_video(
     voice_client, gateway, repository

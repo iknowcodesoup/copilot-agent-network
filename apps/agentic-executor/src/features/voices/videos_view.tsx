@@ -1,171 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Film, Pencil, RotateCcw, Trash2 } from "lucide-react";
-import { useDeleteRun, useRetryRun, useVoiceRuns } from "./api/use_voice_runs";
-import { useRenameVideo, useVideos } from "./api/use_videos";
-import { Button } from "@/components/ui/button";
-import type { VideoSummary, VoiceRun } from "./types";
-import { toneForPhase } from "./derive";
-import { WatchLink } from "./watch_link";
-import { VideoCard } from "./video_card";
-import { ClipTable } from "./clip_table";
-import { StatusPill } from "./status_pill";
+import { useMemo } from "react";
+import { useVideos } from "./api/use_videos";
+import { useVoiceRuns } from "./api/use_voice_runs";
 import { useStudio } from "@/features/chat/studio_provider";
+import { VideoListPanel } from "./video_list_panel";
+import { ClipReviewPane } from "./clip_review_pane";
 
 /*
  * Two lists, one join key.
  *
  * The videos come from the voice factory, which owns them, and the runs come
  * from Postgres, which owns the pipeline state. They are joined on videoId,
- * never by position: a run whose video the factory no longer lists is orphaned
- * and must say so, rather than quietly pairing with whichever video happened to
- * sit at the same index.
+ * never by position: a run whose video the factory no longer lists is
+ * orphaned, and VideoListPanel says so rather than quietly pairing it with
+ * whichever video happens to sit at the same index.
  */
-interface VideoRow {
-  video: VideoSummary;
-  run: VoiceRun | null;
-}
-
-/* Click the title to correct it. The factory owns the name - it lives in
-   meta.json beside the clips - so the rename is visible to every character
-   that claims the same video, and nothing is stored on this side. */
-function VideoTitle({ video }: { video: VideoSummary }) {
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(video.title);
-  const renameVideo = useRenameVideo(video.videoId);
-
-  useEffect(() => {
-    if (!editing) setTitle(video.title);
-  }, [video.title, editing]);
-
-  const save = () => {
-    setEditing(false);
-    const next = title.trim();
-    if (next && next !== video.title) renameVideo.mutate(next);
-  };
-
-  if (editing)
-    return (
-      <input
-        autoFocus
-        value={title}
-        onChange={(event) => setTitle(event.target.value)}
-        onBlur={save}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            save();
-          }
-          if (event.key === "Escape") {
-            setTitle(video.title);
-            setEditing(false);
-          }
-        }}
-        className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm font-semibold outline-none"
-      />
-    );
-
-  return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      className="group flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left hover:bg-muted/40"
-    >
-      <h3 className="truncate text-sm font-semibold text-foreground">
-        {video.title}
-      </h3>
-      <Pencil className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
-    </button>
-  );
-}
-
-/* Retry and delete for one run.
- *
- * Retry only appears on a failed run, because that is the only phase the API
- * accepts it in - it puts the run back in failed_from_phase. Delete drops the
- * run row and cancels its job; the factory keeps the downloaded audio and
- * clips, so the same video can be claimed again without a second download. */
-function RunActions({ run }: { run: VoiceRun }) {
-  const retryRun = useRetryRun(run.id);
-  const deleteRun = useDeleteRun();
-  const { setSelectedRunId } = useStudio();
-  const busy = retryRun.isPending || deleteRun.isPending;
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {run.phase === "failed" && (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => retryRun.mutate()}
-        >
-          <RotateCcw />
-          {retryRun.isPending ? "Retrying…" : "Retry"}
-        </Button>
-      )}
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={busy}
-        onClick={() => {
-          if (!window.confirm("Delete this run? The video and its clips stay."))
-            return;
-          deleteRun.mutate(run.id, {
-            onSuccess: () => setSelectedRunId(null),
-          });
-        }}
-        className="text-destructive hover:text-destructive"
-      >
-        <Trash2 />
-        {deleteRun.isPending ? "Deleting…" : "Delete run"}
-      </Button>
-      {(retryRun.isError || deleteRun.isError) && (
-        <span className="text-xs text-destructive">
-          {((retryRun.error ?? deleteRun.error) as Error).message}
-        </span>
-      )}
-    </div>
-  );
-}
-
 export function VideosView() {
   const videos = useVideos();
   const runs = useVoiceRuns();
   const { selectedVideoId, setSelectedVideoId } = useStudio();
   const videoList = useMemo(() => videos.data ?? [], [videos.data]);
   const runList = useMemo(() => runs.data ?? [], [runs.data]);
-
-  const rows = useMemo<VideoRow[]>(
-    () =>
-      videoList.map((video) => ({
-        video,
-        run: runList.find((run) => run.videoId === video.videoId) ?? null,
-      })),
-    [videoList, runList],
-  );
-
-  /* A run pointing at a video the factory does not list. Its clips are gone,
-     so it gets no review action - only enough to see it and delete it. */
-  const orphanedRuns = useMemo(
-    () =>
-      runList.filter(
-        (run) =>
-          !run.videoId ||
-          !videoList.some((video) => video.videoId === run.videoId),
-      ),
-    [runList, videoList],
-  );
-
-  const selectedRow =
-    rows.find((row) => row.video.videoId === selectedVideoId) ??
-    rows[0] ??
-    null;
-  /* The factory learns a video's URL only once meta.json is written, so the
-     run's own source_url stands in until then. */
-  const selectedWatchUrl =
-    selectedRow?.video.url ?? selectedRow?.run?.sourceUrl ?? null;
 
   if (videos.isLoading)
     return (
@@ -183,122 +39,28 @@ export function VideosView() {
       </div>
     );
 
+  const selectedVideo =
+    videoList.find((video) => video.videoId === selectedVideoId) ??
+    videoList[0] ??
+    null;
+  const selectedRun = selectedVideo
+    ? (runList.find((run) => run.videoId === selectedVideo.videoId) ?? null)
+    : null;
+
   return (
-    <div className="flex flex-col gap-5">
-      <section>
-        <div className="mb-3 flex items-center gap-2">
-          <Film className="size-4 text-primary" />
-          <h2 className="text-sm font-semibold text-foreground">
-            Processing Queue
-          </h2>
-          <span className="font-mono text-xs text-muted-foreground">
-            {videoList.length} videos
-          </span>
+    <div className="flex h-full min-h-0">
+      <VideoListPanel
+        videos={videoList}
+        runs={runList}
+        selectedVideoId={selectedVideo?.videoId ?? null}
+        onSelectVideo={setSelectedVideoId}
+      />
+      {selectedVideo ? (
+        <ClipReviewPane key={selectedVideo.videoId} video={selectedVideo} run={selectedRun} />
+      ) : (
+        <div className="flex flex-1 items-center justify-center p-10 text-center text-sm text-muted-foreground">
+          No videos yet. Paste a YouTube URL above to start processing.
         </div>
-        {videoList.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border p-10 text-center">
-            <p className="text-sm text-muted-foreground">
-              No videos yet. Paste a YouTube URL above to start processing.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {rows.map(({ video, run }) => (
-              <VideoCard
-                key={video.videoId}
-                video={video}
-                phase={run?.phase ?? null}
-                watchUrl={video.url ?? run?.sourceUrl ?? null}
-                selected={
-                  video.videoId === selectedRow?.video.videoId
-                }
-                onSelect={() => setSelectedVideoId(video.videoId)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {orphanedRuns.length > 0 && (
-        <section className="rounded-xl border border-dashed border-border p-4">
-          <h3 className="mb-2 text-sm font-semibold text-foreground">
-            Runs without a video
-          </h3>
-          <p className="mb-3 text-xs text-muted-foreground">
-            The voice factory no longer holds the video these runs point at, so
-            there is nothing to review.
-          </p>
-          <ul className="flex flex-col gap-2">
-            {orphanedRuns.map((run) => (
-              <li
-                key={run.id}
-                className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-              >
-                <span className="font-medium text-foreground">
-                  {run.primaryCharacter}
-                </span>
-                <StatusPill
-                  tone={toneForPhase(run.phase)}
-                  pulse={false}
-                  label={run.phase.replaceAll("_", " ")}
-                />
-                <span className="truncate font-mono text-[0.7rem]">
-                  {run.videoId ?? "no video id"}
-                </span>
-                <div className="ml-auto flex items-center gap-2">
-                  {/* The run keeps the URL even when its video is gone, so an
-                      orphan can still be opened and re-ingested. */}
-                  <WatchLink url={run.sourceUrl} />
-                  <RunActions run={run} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {selectedRow && (
-        <section className="rounded-xl border border-border bg-card/50 p-4">
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <VideoTitle video={selectedRow.video} />
-            {selectedRow.run && (
-              <StatusPill
-                tone={toneForPhase(selectedRow.run.phase)}
-                pulse={
-                  !["failed", "ready", "awaiting_review"].includes(
-                    selectedRow.run.phase,
-                  )
-                }
-                label={selectedRow.run.phase.replaceAll("_", " ")}
-              />
-            )}
-            {selectedWatchUrl && (
-              <WatchLink
-                url={selectedWatchUrl}
-                label="Watch on YouTube"
-                className="ml-auto"
-              />
-            )}
-          </div>
-
-          {selectedRow.run && (
-            <div className="mb-4 flex flex-col gap-2">
-              {/* The failure text is the only record of why a run stopped, so
-                  it sits next to the button that acts on it. */}
-              {selectedRow.run.phase === "failed" && selectedRow.run.error && (
-                <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 font-mono text-[0.7rem] text-destructive">
-                  {selectedRow.run.error}
-                </p>
-              )}
-              <RunActions run={selectedRow.run} />
-            </div>
-          )}
-
-          <ClipTable
-            videoId={selectedRow.video.videoId}
-            runId={selectedRow.run?.id ?? null}
-          />
-        </section>
       )}
     </div>
   );

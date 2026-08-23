@@ -13,6 +13,7 @@ import { SearchView } from "@/features/search/search_view";
 import { LogMonitor } from "@/features/voices/log_monitor";
 import { ChatPanel } from "@/features/chat/chat_panel";
 import { AddVideoBar } from "@/features/voices/add_video_bar";
+import { ThemeToggle } from "@/components/theme_toggle";
 
 function ViewTabs() {
   const { view, setView } = useStudio();
@@ -109,6 +110,7 @@ function StudioShell() {
               >
                 {logOpen ? "Hide logs" : "Show logs"}
               </button>
+              <ThemeToggle />
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -120,13 +122,21 @@ function StudioShell() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {/* No padding and no scroll here: VideosView's two panes each own
+              their own scrolling, and would otherwise scroll inside a
+              second, outer scroller. VoicesView and SearchView still want
+              the page's usual padding, so they wrap themselves in it. */}
+          <main className="min-h-0 flex-1 overflow-hidden">
             {view === "videos" ? (
               <VideosView />
             ) : view === "voices" ? (
-              <VoicesView />
+              <div className="h-full overflow-y-auto px-6 py-5">
+                <VoicesView />
+              </div>
             ) : (
-              <SearchView />
+              <div className="h-full overflow-y-auto px-6 py-5">
+                <SearchView />
+              </div>
             )}
           </main>
           {logOpen && (

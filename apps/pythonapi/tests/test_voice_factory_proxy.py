@@ -188,6 +188,29 @@ def test_it_streams_clip_audio(client, factory):
     assert response.content == b"RIFFfake-wav-bytes"
 
 
+def test_it_forwards_a_float_pad_sec_on_the_audio_route(client, factory):
+    """A float pad_sec is what would fail silently: an unpadded window just
+    looks like a cramped trim bar, with no error to point at the cause.
+    test_it_forwards_the_path_and_query_unchanged already covers a plain
+    string query param, so this only needs to prove the float case survives."""
+    factory.reply(
+        "GET",
+        "/videos/vid_abc123/clips/c1/audio",
+        httpx.Response(
+            200, content=b"RIFFfake-wav-bytes", headers={"content-type": "audio/wav"}
+        ),
+    )
+
+    response = client.get(
+        "/api/voice-factory/videos/vid_abc123/clips/c1/audio",
+        params={"pad_sec": "2.5"},
+    )
+
+    assert response.status_code == 200
+    forwarded = factory.requests[-1]
+    assert forwarded.url.params["pad_sec"] == "2.5"
+
+
 def test_it_forwards_a_commit(client, factory):
     factory.reply(
         "POST", "/commit", httpx.Response(200, json={"committed": {"vid_abc123": 12}})

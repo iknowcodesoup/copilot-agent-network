@@ -22,11 +22,20 @@ import { useUpdateClips } from "./api/use_videos";
  */
 export function ClipRow({
   clip,
+  ordinal,
+  selected,
+  onSelect,
   assignedVoiceName,
   onAssignSpeaker,
   assigning,
 }: {
   clip: StudioClip;
+  /* position in the currently-shown list; not stored on the clip, which has
+     no stable ordering of its own (start_sec ordering is derivable, not a
+     count, and was the bug: the badge used to print a timestamp) */
+  ordinal: number;
+  selected: boolean;
+  onSelect: () => void;
   /* resolved from the run's assignments by voice id, never stored on the clip */
   assignedVoiceName: string | null;
   /* null when the clip has no speaker label - there is nothing to bind a
@@ -50,15 +59,28 @@ export function ClipRow({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
       className={cn(
         "rounded-lg border bg-background/40 p-3",
         !clip.keep && "opacity-75",
-        clip.keep ? "border-success/30" : "border-border",
+        selected
+          ? "border-primary/60 ring-1 ring-primary/40"
+          : clip.keep
+            ? "border-success/30"
+            : "border-border",
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[0.7rem] text-muted-foreground/60">
-          #{String(clip.index).padStart(2, "0")}
+          #{String(ordinal).padStart(2, "0")}
         </span>
         {clip.speakerLabel && onAssignSpeaker ? (
           <VoiceSpeakerCombobox

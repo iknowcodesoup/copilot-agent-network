@@ -151,6 +151,7 @@ class ClipSummary(BaseModel):
     start_sec: float | None = None
     end_sec: float | None = None
     text: str = ""
+    excluded_reason: str = ""
 
 
 class VideoClips(BaseModel):
