@@ -6,6 +6,9 @@ instead of importing a client module directly, so any provider can be
 swapped out in tests with app.dependency_overrides.
 """
 
+from collections.abc import Callable
+from typing import TypeVar
+
 from cachetools import LRUCache
 from fastapi import HTTPException, Request, status
 from langfuse import Langfuse
@@ -22,13 +25,11 @@ from pythonapi.core.voice_agent_tools import VoiceToolRegistry
 from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.repositories.base import DocumentRepository
-from pythonapi.repositories.orders import OrderRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
 from pythonapi.repositories.voice_repository import VoiceRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
-from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
 from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
 
 
@@ -64,24 +65,32 @@ def get_qdrant_client(request: Request) -> AsyncQdrantClient:
     return request.app.state.qdrant_client
 
 
-def get_required_order_repository(request: Request) -> OrderRepository:
-    repository = request.app.state.order_repository
-    if repository is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Postgres is not configured.",
-        )
-    return repository
+StateT = TypeVar("StateT")
 
 
-def get_required_voice_factory_gateway(request: Request) -> VoiceFactoryGateway:
-    gateway = request.app.state.voice_factory_gateway
-    if gateway is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The voice factory is not configured. Set VOICE_FACTORY_URL.",
-        )
-    return gateway
+def require_state(attribute: str, detail: str) -> Callable[[Request], StateT]:
+    """A Depends() provider reading app.state.<attribute>, for state that is
+    only sometimes configured. Answers 503 with `detail` when it is None."""
+
+    def provider(request: Request) -> StateT:
+        value = getattr(request.app.state, attribute)
+        if value is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail
+            )
+        return value
+
+    return provider
+
+
+get_required_order_repository = require_state(
+    "order_repository", "Postgres is not configured."
+)
+
+get_required_voice_factory_gateway = require_state(
+    "voice_factory_gateway",
+    "The voice factory is not configured. Set VOICE_FACTORY_URL.",
+)
 
 
 def get_voice_factory_gateway(request: Request) -> VoiceFactoryGateway | None:
@@ -120,24 +129,15 @@ def get_required_voice_event_stream(request: Request) -> VoiceEventStream:
     return request.app.state.voice_event_stream
 
 
-def get_required_voice_run_reconciler(request: Request) -> VoiceRunReconciler:
-    reconciler = request.app.state.voice_run_reconciler
-    if reconciler is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The voice factory is not configured. Set VOICE_FACTORY_URL.",
-        )
-    return reconciler
+get_required_voice_run_reconciler = require_state(
+    "voice_run_reconciler",
+    "The voice factory is not configured. Set VOICE_FACTORY_URL.",
+)
 
-
-def get_required_voice_training_reconciler(request: Request) -> VoiceTrainingReconciler:
-    reconciler = request.app.state.voice_training_reconciler
-    if reconciler is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The voice factory is not configured. Set VOICE_FACTORY_URL.",
-        )
-    return reconciler
+get_required_voice_training_reconciler = require_state(
+    "voice_training_reconciler",
+    "The voice factory is not configured. Set VOICE_FACTORY_URL.",
+)
 
 
 def get_voice_training_reconciler(request: Request) -> VoiceTrainingReconciler | None:
