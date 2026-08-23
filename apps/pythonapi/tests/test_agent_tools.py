@@ -11,8 +11,8 @@ import json
 
 import pytest
 
+from pythonapi.agents.orchestrator import chat_agent
 from pythonapi.config import settings
-from pythonapi.core import chat_agent
 from pythonapi.core.voice_agent_tools import (
     TOOL_GET_RUN,
     TOOL_LIST_RUNS,

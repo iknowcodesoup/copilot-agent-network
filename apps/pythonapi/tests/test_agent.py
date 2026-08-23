@@ -9,8 +9,8 @@ import json
 
 import pytest
 
+from pythonapi.agents.orchestrator import chat_agent
 from pythonapi.config import settings
-from pythonapi.core import chat_agent
 
 
 def _run_input(content: str = "Hello") -> dict:

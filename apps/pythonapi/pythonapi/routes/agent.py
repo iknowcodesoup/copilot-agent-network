@@ -10,8 +10,8 @@ from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
+from pythonapi.agents.orchestrator.chat_agent import run_chat_agent
 from pythonapi.config import settings
-from pythonapi.core.chat_agent import run_chat_agent
 from pythonapi.core.voice_agent_tools import VoiceToolRegistry
 from pythonapi.dependencies import get_voice_tool_registry
 
