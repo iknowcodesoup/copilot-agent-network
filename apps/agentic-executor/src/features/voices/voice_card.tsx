@@ -1,9 +1,9 @@
 "use client";
 
 import { Mic, Users, Clapperboard } from "lucide-react";
-import { StatusPill } from "./status-pill";
+import { StatusPill } from "./status_pill";
 import { cn } from "@/lib/utils";
-import type { VoiceDetail } from "@/lib/types";
+import type { VoiceDetail } from "./types";
 
 /*
  * What a voice is made of, read from its contributions.

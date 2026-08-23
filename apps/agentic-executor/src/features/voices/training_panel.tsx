@@ -2,8 +2,8 @@
 
 import { Play, Cpu, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useTrainVoice, useVoiceDetail } from "@/lib/voice_api";
-import type { VoiceDetail } from "@/lib/types";
+import { useTrainVoice, useVoiceDetail } from "./voice_api";
+import type { VoiceDetail } from "./types";
 
 /*
  * One voice, and the speakers committed into it.

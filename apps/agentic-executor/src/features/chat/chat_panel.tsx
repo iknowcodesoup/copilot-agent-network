@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { useAssistant } from "@/lib/assistant"
+import { useAssistant } from "./assistant"
 
 interface Msg {
   id: string

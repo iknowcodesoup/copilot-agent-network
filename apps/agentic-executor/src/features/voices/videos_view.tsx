@@ -8,15 +8,15 @@ import {
   useRetryRun,
   useVideos,
   useVoiceRuns,
-} from "@/lib/voice_api";
+} from "./voice_api";
 import { Button } from "@/components/ui/button";
-import type { VideoSummary, VoiceRun } from "@/lib/types";
-import { toneForPhase } from "@/features/voices/derive";
-import { WatchLink } from "./watch-link";
-import { VideoCard } from "./video-card";
-import { ClipTable } from "./clip-table";
-import { StatusPill } from "./status-pill";
-import { useStudio } from "./studio-provider";
+import type { VideoSummary, VoiceRun } from "./types";
+import { toneForPhase } from "./derive";
+import { WatchLink } from "./watch_link";
+import { VideoCard } from "./video_card";
+import { ClipTable } from "./clip_table";
+import { StatusPill } from "./status_pill";
+import { useStudio } from "@/features/chat/studio_provider";
 
 /*
  * Two lists, one join key.

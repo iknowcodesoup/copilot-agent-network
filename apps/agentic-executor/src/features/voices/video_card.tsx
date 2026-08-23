@@ -1,18 +1,18 @@
 "use client";
 
 import { Film, MoreVertical, Play, Scissors, Trash2 } from "lucide-react";
-import { StatusPill } from "./status-pill";
+import { StatusPill } from "./status_pill";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLinkItem,
   DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { useDeleteVideo } from "@/lib/voice_api";
-import type { VideoSummary, VoiceRunPhase } from "@/lib/types";
-import { toneForPhase } from "@/features/voices/derive";
+import { useDeleteVideo } from "./voice_api";
+import type { VideoSummary, VoiceRunPhase } from "./types";
+import { toneForPhase } from "./derive";
 
 /*
  * Watch, Delete, and room for whatever comes next - one overflow menu rather

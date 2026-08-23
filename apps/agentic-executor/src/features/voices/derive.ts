@@ -1,4 +1,4 @@
-import type { VoiceRun, VoiceRunPhase } from "@/lib/types"
+import type { VoiceRun, VoiceRunPhase } from "./types"
 
 /** A run's display title.
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useMemo } from "react"
-import { useRunForVideo, useStudio } from "@/components/studio-provider"
+import { useRunForVideo, useStudio } from "./studio_provider"
 import {
   isActive,
   useAssignRun,
@@ -12,7 +12,7 @@ import {
   useUpdateClips,
   useVoiceList,
   useVoiceRuns,
-} from "@/lib/voice_api"
+} from "@/features/voices/voice_api"
 import { runTitle } from "@/features/voices/derive"
 
 /**

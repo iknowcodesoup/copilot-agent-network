@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useStudio } from "@/components/studio-provider";
-import { useStartRun } from "@/lib/voice_api";
+import { useStudio } from "@/features/chat/studio_provider";
+import { useStartRun } from "./voice_api";
 
 export function AddVideoBar() {
   const { setView } = useStudio();

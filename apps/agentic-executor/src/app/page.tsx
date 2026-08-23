@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StudioProvider, useStudio } from "@/components/studio-provider";
-import { useVideos, useVoiceList, useVoiceRuns } from "@/lib/voice_api";
-import { VoiceLiveState } from "@/lib/voice_event_stream";
-import { VideosView } from "@/components/videos-view";
-import { VoicesView } from "@/components/voices-view";
-import { SearchView } from "@/components/search-view";
-import { LogMonitor } from "@/components/log-monitor";
-import { ChatPanel } from "@/components/chat-panel";
-import { AddVideoBar } from "@/components/add-video-bar";
+import { StudioProvider, useStudio } from "@/features/chat/studio_provider";
+import { useVideos, useVoiceList, useVoiceRuns } from "@/features/voices/voice_api";
+import { VoiceLiveState } from "@/features/voices/voice_event_stream";
+import { VideosView } from "@/features/voices/videos_view";
+import { VoicesView } from "@/features/voices/voices_view";
+import { SearchView } from "@/features/search/search_view";
+import { LogMonitor } from "@/features/voices/log_monitor";
+import { ChatPanel } from "@/features/chat/chat_panel";
+import { AddVideoBar } from "@/features/voices/add_video_bar";
 
 function ViewTabs() {
   const { view, setView } = useStudio();

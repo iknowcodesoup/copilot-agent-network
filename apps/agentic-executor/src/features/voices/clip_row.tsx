@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Check, X, Pencil, AudioLines } from "lucide-react";
-import { VoiceSpeakerCombobox } from "./voice-speaker-combobox";
-import { AudioPlayerBar } from "./audio-player-bar";
+import { VoiceSpeakerCombobox } from "./voice_speaker_combobox";
+import { AudioPlayerBar } from "./audio_player_bar";
 import { cn } from "@/lib/utils";
-import type { StudioClip } from "@/lib/types";
-import { clipAudioUrl, useUpdateClips } from "@/lib/voice_api";
+import type { StudioClip } from "./types";
+import { clipAudioUrl, useUpdateClips } from "./voice_api";
 
 /*
  * Clip writes target clip.videoId directly, never a shared "active" video id.

@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Radio, ChevronDown } from "lucide-react";
-import { useRunForVideo, useStudio } from "./studio-provider";
-import { useJobLog, useVideos, useVoiceRuns } from "@/lib/voice_api";
+import { useRunForVideo, useStudio } from "@/features/chat/studio_provider";
+import { useJobLog, useVideos, useVoiceRuns } from "./voice_api";
 import { formatClock } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { LogLine } from "@/lib/types";
+import type { LogLine } from "./types";
 
 export function LogMonitor() {
   const { logFilter, setLogFilter, selectedVideoId, selectedRunId } =

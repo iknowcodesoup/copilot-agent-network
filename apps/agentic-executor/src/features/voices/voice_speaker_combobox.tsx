@@ -9,7 +9,7 @@ import {
   useVoices,
   VoiceApiError,
   type VoiceSummary,
-} from "@/lib/voice_api"
+} from "./voice_api"
 
 /*
  * Search-or-create Voice picker for one speaker row (Story 3.5, FR25). Never

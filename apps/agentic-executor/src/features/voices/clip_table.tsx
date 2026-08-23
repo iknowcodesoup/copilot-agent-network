@@ -7,10 +7,10 @@ import {
   useSpeakerBoard,
   useVoiceList,
   useVoiceRun,
-} from "@/lib/voice_api";
+} from "./voice_api";
 import { cn } from "@/lib/utils";
-import { ClipRow } from "./clip-row";
-import type { StudioClip } from "@/lib/types";
+import { ClipRow } from "./clip_row";
+import type { StudioClip } from "./types";
 
 type Filter = "all" | "kept" | "review" | "flagged";
 

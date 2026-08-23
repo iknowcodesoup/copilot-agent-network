@@ -5,9 +5,9 @@ import { Film, Play, Search as SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/format";
-import { useStartRun, useVideoSearch, type VideoResult } from "@/lib/voice_api";
-import { WatchLink } from "./watch-link";
-import { useStudio } from "./studio-provider";
+import { useStartRun, useVideoSearch, type VideoResult } from "@/features/voices/voice_api";
+import { WatchLink } from "@/features/voices/watch_link";
+import { useStudio } from "@/features/chat/studio_provider";
 
 /* Every speaker the operator does not reassign lands here. The review screen is
    where a speaker gets its real name, so naming one up front is not required. */

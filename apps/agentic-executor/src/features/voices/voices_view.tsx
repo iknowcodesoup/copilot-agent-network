@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Mic, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useStudio } from "./studio-provider";
-import { useCreateVoice, useVoiceList } from "@/lib/voice_api";
-import { VoiceCard } from "./voice-card";
-import { TrainingPanel } from "./training-panel";
+import { useStudio } from "@/features/chat/studio_provider";
+import { useCreateVoice, useVoiceList } from "./voice_api";
+import { VoiceCard } from "./voice_card";
+import { TrainingPanel } from "./training_panel";
 
 export function VoicesView() {
   const { selectedVoiceId, setSelectedVoiceId } = useStudio();
