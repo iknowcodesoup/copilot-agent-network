@@ -6,6 +6,7 @@ every attempt goes to a log file for human debugging.
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -48,6 +49,38 @@ def append_log(text: str) -> None:
         log_file.write("\n")
 
 
+def task_environment() -> dict[str, str]:
+    """The environment a task runs in, corrected for where this script lives.
+
+    Three inherited values are wrong for a task, and they are fixed here
+    rather than at every call site.
+
+    NX_WORKSPACE_ROOT_PATH is stamped into the environment by whatever
+    started the session, and nx honours it over the working directory. A
+    session started in the main checkout therefore runs every task against
+    that checkout, even while this script sits in a worktree - the task
+    reports on the wrong tree and its PASS means nothing. repo_root comes
+    from this file's own path, so it always names the tree that owns this
+    script. No path to any other repository is assumed.
+
+    VIRTUAL_ENV is exported by the `uv run` that starts this script. Passed
+    down, it points the task's own `uv run` at the launcher's interpreter
+    instead of the project's.
+
+    The nx daemon is keyed by workspace root, and two daemons sharing one
+    .git contend and hang. A worktree is the case where a second daemon
+    appears, and git marks a worktree by writing .git as a file rather than
+    a directory. So the daemon is disabled only there, and the main checkout
+    keeps its cache.
+    """
+    environment = dict(os.environ)
+    environment["NX_WORKSPACE_ROOT_PATH"] = str(repo_root)
+    environment.pop("VIRTUAL_ENV", None)
+    if (repo_root / ".git").is_file():
+        environment["NX_DAEMON"] = "false"
+    return environment
+
+
 def run_task_command(command: str) -> subprocess.CompletedProcess:
     # nx resolves to nx.ps1 on this machine. cmd.exe (shell=True) will not
     # find a .ps1 script, so invoke through PowerShell explicitly.
@@ -66,6 +99,7 @@ def run_task_command(command: str) -> subprocess.CompletedProcess:
         encoding="utf-8",
         errors="replace",
         cwd=repo_root,
+        env=task_environment(),
     )
 
 
