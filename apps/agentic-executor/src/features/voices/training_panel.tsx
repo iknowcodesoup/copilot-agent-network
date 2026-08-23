@@ -2,7 +2,7 @@
 
 import { Play, Cpu, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useTrainVoice, useVoiceDetail } from "./voice_api";
+import { useTrainVoice, useVoiceDetail } from "./api/use_voices";
 import type { VoiceDetail } from "./types";
 
 /*

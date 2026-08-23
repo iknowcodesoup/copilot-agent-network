@@ -1,13 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  useAssignRun,
-  useCommitRun,
-  useSpeakerBoard,
-  useVoiceList,
-  useVoiceRun,
-} from "./voice_api";
+import { useAssignRun, useCommitRun, useVoiceRun } from "./api/use_voice_runs";
+import { useSpeakerBoard } from "./api/use_videos";
+import { useVoiceList } from "./api/use_voices";
 import { cn } from "@/lib/utils";
 import { ClipRow } from "./clip_row";
 import type { StudioClip } from "./types";

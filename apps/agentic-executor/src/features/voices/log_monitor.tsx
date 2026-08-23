@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Radio, ChevronDown } from "lucide-react";
 import { useRunForVideo, useStudio } from "@/features/chat/studio_provider";
-import { useJobLog, useVideos, useVoiceRuns } from "./voice_api";
+import { useJobLog, useVoiceRuns } from "./api/use_voice_runs";
+import { useVideos } from "./api/use_videos";
 import { formatClock } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { LogLine } from "./types";

@@ -1,8 +1,8 @@
 "use client";
 
 import { Observable, defer, filter, map, retry, share, timer } from "rxjs";
-import { voiceApiBase } from "./voice_endpoints";
-import { convertKeys, toCamelCase } from "./voice_api";
+import { voiceApiBase } from "./api/endpoints";
+import { convertKeys, toCamelCase } from "./api/voice_client";
 
 /*
  * The observable layer.

@@ -4,12 +4,9 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useEffect, useRef, useState } from "react"
-import {
-  useCreateVoice,
-  useVoices,
-  VoiceApiError,
-  type VoiceSummary,
-} from "./voice_api"
+import { useCreateVoice, useVoices } from "./api/use_voices"
+import { VoiceApiError } from "./api/voice_client"
+import type { VoiceSummary } from "./types"
 
 /*
  * Search-or-create Voice picker for one speaker row (Story 3.5, FR25). Never

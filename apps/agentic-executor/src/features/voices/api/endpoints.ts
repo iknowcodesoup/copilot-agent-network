@@ -2,8 +2,8 @@
  * Where each thing lives.
  *
  * Its own module so the observable layer and the query layer can both name a
- * base URL without importing each other - voice_api.ts announces writes into
- * voice_streams.ts, and voice_streams.ts needs the SSE origin.
+ * base URL without importing each other - the use_*.ts hooks write into
+ * voice_streams.ts's cache, and voice_streams.ts needs the SSE origin.
  */
 
 export const pythonApiUrl =

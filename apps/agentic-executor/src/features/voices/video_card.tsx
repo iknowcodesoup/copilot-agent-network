@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { useDeleteVideo } from "./voice_api";
+import { useDeleteVideo } from "./api/use_videos";
 import type { VideoSummary, VoiceRunPhase } from "./types";
 import { toneForPhase } from "./derive";
 

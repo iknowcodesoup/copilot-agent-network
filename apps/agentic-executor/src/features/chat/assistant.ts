@@ -5,14 +5,11 @@ import { useRunForVideo, useStudio } from "./studio_provider"
 import {
   isActive,
   useAssignRun,
-  useCreateVoice,
-  useSpeakerBoard,
   useStartRun,
-  useTrainVoice,
-  useUpdateClips,
-  useVoiceList,
   useVoiceRuns,
-} from "@/features/voices/voice_api"
+} from "@/features/voices/api/use_voice_runs"
+import { useSpeakerBoard, useUpdateClips } from "@/features/voices/api/use_videos"
+import { useCreateVoice, useTrainVoice, useVoiceList } from "@/features/voices/api/use_voices"
 import { runTitle } from "@/features/voices/derive"
 
 /**

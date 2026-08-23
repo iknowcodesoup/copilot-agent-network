@@ -5,7 +5,9 @@ import { Film, Play, Search as SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/format";
-import { useStartRun, useVideoSearch, type VideoResult } from "@/features/voices/voice_api";
+import { useStartRun } from "@/features/voices/api/use_voice_runs";
+import { useVideoSearch } from "@/features/voices/api/use_videos";
+import type { VideoResult } from "@/features/voices/types";
 import { WatchLink } from "@/features/voices/watch_link";
 import { useStudio } from "@/features/chat/studio_provider";
 

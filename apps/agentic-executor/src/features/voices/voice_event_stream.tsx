@@ -3,7 +3,8 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Subscription } from "rxjs";
-import { voiceQueryKeys, type JobLog, type VoiceRun } from "./voice_api";
+import { voiceQueryKeys } from "./api/query_keys";
+import type { JobLog, VoiceRun } from "./types";
 import { runLogs$, runSnapshots$, runUpdates$ } from "./voice_streams";
 
 /*

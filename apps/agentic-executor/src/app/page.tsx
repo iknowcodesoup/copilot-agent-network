@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StudioProvider, useStudio } from "@/features/chat/studio_provider";
-import { useVideos, useVoiceList, useVoiceRuns } from "@/features/voices/voice_api";
+import { useVideos } from "@/features/voices/api/use_videos";
+import { useVoiceList } from "@/features/voices/api/use_voices";
+import { useVoiceRuns } from "@/features/voices/api/use_voice_runs";
 import { VoiceLiveState } from "@/features/voices/voice_event_stream";
 import { VideosView } from "@/features/voices/videos_view";
 import { VoicesView } from "@/features/voices/voices_view";

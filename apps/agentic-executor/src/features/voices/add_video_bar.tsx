@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useStudio } from "@/features/chat/studio_provider";
-import { useStartRun } from "./voice_api";
+import { useStartRun } from "./api/use_voice_runs";
 
 export function AddVideoBar() {
   const { setView } = useStudio();

@@ -6,7 +6,8 @@ import { VoiceSpeakerCombobox } from "./voice_speaker_combobox";
 import { AudioPlayerBar } from "./audio_player_bar";
 import { cn } from "@/lib/utils";
 import type { StudioClip } from "./types";
-import { clipAudioUrl, useUpdateClips } from "./voice_api";
+import { clipAudioUrl } from "./api/query_keys";
+import { useUpdateClips } from "./api/use_videos";
 
 /*
  * Clip writes target clip.videoId directly, never a shared "active" video id.

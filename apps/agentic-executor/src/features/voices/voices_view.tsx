@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Mic, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStudio } from "@/features/chat/studio_provider";
-import { useCreateVoice, useVoiceList } from "./voice_api";
+import { useCreateVoice, useVoiceList } from "./api/use_voices";
 import { VoiceCard } from "./voice_card";
 import { TrainingPanel } from "./training_panel";
 

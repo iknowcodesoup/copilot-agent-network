@@ -1,12 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import {
-  useTrainVoice,
-  useVoiceDetail,
-  useVoiceList,
-  voicesApiBase,
-} from "./voice_api";
+import { useTrainVoice, useVoiceDetail, useVoiceList } from "./api/use_voices";
+import { voicesApiBase } from "./api/endpoints";
 
 /*
  * Covers Story 3.6's Task "voice_api.ts -- add useVoiceList, useVoiceDetail,

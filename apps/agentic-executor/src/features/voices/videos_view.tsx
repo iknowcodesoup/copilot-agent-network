@@ -2,13 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Film, Pencil, RotateCcw, Trash2 } from "lucide-react";
-import {
-  useDeleteRun,
-  useRenameVideo,
-  useRetryRun,
-  useVideos,
-  useVoiceRuns,
-} from "./voice_api";
+import { useDeleteRun, useRetryRun, useVoiceRuns } from "./api/use_voice_runs";
+import { useRenameVideo, useVideos } from "./api/use_videos";
 import { Button } from "@/components/ui/button";
 import type { VideoSummary, VoiceRun } from "./types";
 import { toneForPhase } from "./derive";
