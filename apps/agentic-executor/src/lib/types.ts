@@ -260,7 +260,7 @@ export interface RunAssignResponse {
 // The wire types above describe individual API responses. These two add the
 // linkage the list UI needs on top, and nothing the backend cannot supply:
 //   - StudioClip: a ClipSummary plus the run/video linkage + ordering the list
-//     UI needs. `audioUrl` is DERIVED (see lib/derive.ts), not stored.
+//     UI needs. `audioUrl` is DERIVED (see clipAudioUrl in voice_api.ts), not stored.
 //   - LogLine: one decoded line of a JobLog's text stream, tagged with the run
 //     it came from so the monitor can filter by source.
 //

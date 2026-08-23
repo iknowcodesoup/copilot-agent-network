@@ -3,6 +3,7 @@
 import { useCallback, useMemo } from "react"
 import { useRunForVideo, useStudio } from "@/components/studio-provider"
 import {
+  isActive,
   useAssignRun,
   useCreateVoice,
   useSpeakerBoard,
@@ -12,7 +13,7 @@ import {
   useVoiceList,
   useVoiceRuns,
 } from "@/lib/voice_api"
-import { isPhaseActive, runTitle } from "@/lib/derive"
+import { runTitle } from "@/features/voices/derive"
 
 /**
  * A framework-agnostic action registry + intent parser.
@@ -249,7 +250,7 @@ export function useAssistant() {
 
       // --- status / summary ---
       if (lc.includes("status") || lc.includes("summary") || lc.includes("how many") || lc.includes("what")) {
-        const inProgress = runs.filter((run) => isPhaseActive(run.phase)).length
+        const inProgress = runs.filter((run) => isActive(run.phase)).length
         const done = runs.filter((run) => run.phase === "awaiting_review" || run.phase === "ready").length
         const failed = runs.filter((run) => run.phase === "failed").length
         const training = voices.filter((voice) => voice.phase === "training").length
