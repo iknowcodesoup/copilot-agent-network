@@ -60,6 +60,10 @@ boundary earns its keep.
   - **intent:** Every delegated task is traceable end to end: agent name, skill, A2A task ID, context ID, target, and status appear in logs and in the existing Langfuse/OpenTelemetry trace.
   - **success:** A single AG-UI request that triggers `research_and_voice` produces one trace showing the Orchestrator, both A2A calls with their task IDs, and the final combined response — with no secrets and no hidden model reasoning in the record.
 
+- **CAP-8**
+  - **intent:** The agent network publishes and serves its own catalog under the Agentic Resource Discovery (ARD) specification, so the set of available agents is a queryable resource and not private configuration. This service is both an ARD publisher (a static `ai-catalog` manifest) and an ARD registry (a live search API over that catalog).
+  - **success:** `GET /.well-known/ai-catalog.json` returns a manifest listing both specialists, and `POST /search` with `{"query": {"text": "why is my voice training slow"}}` returns the Voice Agent entry ranked above the Research Agent entry. The official ARD conformance tool passes against both the manifest and the live registry endpoint.
+
 ## Constraints
 
 - Use the current released A2A specification and a pinned SDK version
@@ -73,8 +77,21 @@ boundary earns its keep.
   its only writer. The Voice Agent wraps the existing reconciler; it does
   not replace or duplicate it.
 - MCP is not adopted in this first implementation.
-- No A2A push notifications and no service-discovery infrastructure in the
-  first version — a configured URL per specialist is enough.
+- No A2A push notifications in the first version.
+- Discovery follows the Agentic Resource Discovery (ARD) specification
+  (<https://agenticresourcediscovery.org/spec/>), which supersedes the earlier
+  constraint that ruled service discovery out. This service implements both
+  ARD roles: it publishes a static `ai-catalog` manifest and it serves the
+  registry search API over that manifest. A configured URL per specialist
+  stays the transport fallback, so ARD being unavailable degrades discovery
+  but never breaks delegation.
+- ARD is a v0.9 draft with Proposal status. Pin the spec revision that the
+  implementation targets and record it, because the schema will change.
+- ARD's `trustManifest` is out of scope. No SPIFFE identity, no attestation,
+  and no JWS signing. An unsigned entry is honest; a faked one is not.
+- ARD identifiers are domain-anchored and require a verifiable domain. The
+  demo uses a placeholder publisher domain and must state in its docs that
+  the trust binding is not real.
 - Orchestrator task records persist user request, orchestrator decision,
   target agent, A2A task ID, task result, and final response only — never
   full agent reasoning or hidden chain-of-thought.
@@ -89,7 +106,11 @@ boundary earns its keep.
 - Agent-to-agent free-form conversation.
 - A separate planner agent, reviewer agent, or memory agent.
 - MCP adopted solely for demonstration.
-- A2A push notifications or a registry infrastructure.
+- A2A push notifications.
+- ARD federation across organizations. This registry answers for its own
+  catalog. It accepts the `federation` request field and honours `none`, but
+  it publishes no referrals and calls no upstream registry.
+- ARD trust manifests, attestations, or signature verification.
 - Distributed consensus, agent self-replication, or automatic agent creation.
 - Real GPU model training in CI.
 - Merging the RAG pipeline into the voice pipeline, or adding RAG calls to
