@@ -252,7 +252,7 @@ class Settings(BaseSettings):
         master key accepts any value. So a keyless stack sends a placeholder
         rather than making the key a deployment requirement it is not.
         """
-        return self.LLM_API_KEY or "no-key-required"
+        return self.LLM_API_KEY or ""
 
     @property
     def cors_allow_origins(self) -> list[str]:

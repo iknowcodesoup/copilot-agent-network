@@ -14,21 +14,24 @@ import { useUpdateClips } from "./api/use_videos";
  * and could name a different video than the one this row is actually showing,
  * which silently sent edits to the wrong video's clips.
  *
- * The combobox means two different things depending on whether this clip
- * already shows a name (its own pin, or a speaker's inherited default):
+ * The combobox always renders, even when diarization gave the clip no
+ * speaker_label - review is a human decision, and a clip the pipeline
+ * couldn't attribute is exactly the clip a reviewer most needs to be able to
+ * name. Only what a pick DOES depends on the clip's state:
  *
- * - No name yet: this is the first assignment for the whole speaker group.
- *   onAssignSpeaker writes the group-wide Postgres map (voiceId, joined to a
- *   voice_contributions row), same as before - every clip pyannote grouped
- *   under this label picks up the name, which is the point: auto-label a
- *   still-undecided group.
- * - Already has a name: a diarized group is not one person, so a later pick
- *   here is a correction to THIS clip alone. It writes assignedVoice (a name
- *   string) straight to review.csv via updateClips, and never touches the
- *   group map - every other clip in the group is untouched. This is the one
- *   place a per-clip write is deliberate despite the id-joining concern
- *   above: a corrected clip's audit trail is the group's contribution row,
- *   not its own - see clip_row.tsx's onSelect below and voice_run_assignment.py.
+ * - No speakerLabel: there is no group to join, so a pick is always a
+ *   per-clip pin - it writes assignedVoice straight to review.csv via
+ *   updateClips, and touches nothing else.
+ * - Has a speakerLabel, no name yet: this is the first assignment for the
+ *   whole speaker group. onAssignSpeaker writes the group-wide Postgres map
+ *   (voiceId, joined to a voice_contributions row) - every clip pyannote
+ *   grouped under this label picks up the name, which is the point:
+ *   auto-label a still-undecided group.
+ * - Has a speakerLabel and already shows a name: a diarized group is not one
+ *   person, so a later pick here is a correction to THIS clip alone - same
+ *   per-clip assignedVoice write as the no-speakerLabel case, and the group
+ *   map is untouched. A corrected clip's audit trail stays the group's
+ *   contribution row, not its own - see voice_run_assignment.py.
  */
 export function ClipRow({
   clip,
@@ -51,8 +54,10 @@ export function ClipRow({
   onSelect: () => void;
   /* resolved from the run's assignments by voice id, never stored on the clip */
   assignedVoiceName: string | null;
-  /* null when the clip has no speaker label - there is nothing to bind a
-     voice to, and keying the pair on a clip id would invent a speaker */
+  /* null when there is no run to assign against, or the clip has no
+     speakerLabel to key a group-wide assignment on. Either way a voice can
+     still be pinned to this one clip - see the combobox's onSelect below,
+     which falls back to a per-clip write whenever this is null. */
   onAssignSpeaker: ((voiceId: string) => void) | null;
   assigning: boolean;
   /* Whether THIS row's clip is the one currently sourcing the video's audio.
@@ -106,28 +111,33 @@ export function ClipRow({
         <span className="font-mono text-[0.7rem] text-muted-foreground/60">
           #{String(ordinal).padStart(2, "0")}
         </span>
-        {clip.speakerLabel && onAssignSpeaker ? (
-          <VoiceSpeakerCombobox
-            speakerLabel={clip.speakerLabel}
-            assignedVoiceName={assignedVoiceName}
-            onSelect={(voiceId, voiceName) => {
-              if (assignedVoiceName) {
-                updateClips.mutate([
-                  { clipId: clip.clipId, assignedVoice: voiceName },
-                ]);
-              } else {
-                onAssignSpeaker(voiceId);
-              }
-            }}
-          />
-        ) : (
+        {!clip.speakerLabel && (
           <span
             className="rounded-md border border-dashed border-border px-1.5 py-0.5 font-mono text-[0.65rem] text-muted-foreground"
-            title="Diarization gave this clip no speaker, so no voice can be bound to it."
+            title="Diarization found no dominant speaker for this clip. Assigning a voice here pins this clip alone - there is no group to join."
           >
             no speaker
           </span>
         )}
+        <VoiceSpeakerCombobox
+          speakerLabel={clip.speakerLabel ?? "unlabeled"}
+          assignedVoiceName={assignedVoiceName}
+          onSelect={(voiceId, voiceName) => {
+            /* A clip with no speakerLabel has no group to assign - always a
+               per-clip pin. Same for a clip that already carries a name: a
+               diarized group is not one person, so a later pick corrects
+               this clip alone. Only an unnamed clip that DOES belong to a
+               labelled, run-claimed group goes through onAssignSpeaker,
+               which writes the group-wide map - see the file-level comment. */
+            if (!clip.speakerLabel || assignedVoiceName || !onAssignSpeaker) {
+              updateClips.mutate([
+                { clipId: clip.clipId, assignedVoice: voiceName },
+              ]);
+            } else {
+              onAssignSpeaker(voiceId);
+            }
+          }}
+        />
         {assigning && (
           <span className="font-mono text-[0.65rem] text-muted-foreground">
             assigning…
@@ -146,7 +156,7 @@ export function ClipRow({
         )}
         {clip.flagged && (
           <span className="inline-flex items-center gap-1 rounded-md border border-warn/30 bg-warn/10 px-1.5 py-0.5 font-mono text-[0.65rem] uppercase text-warn">
-            <AudioLines className="size-3" /> flagged
+            <AudioLines className="size-3" /> flagged / noisy
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
@@ -160,7 +170,9 @@ export function ClipRow({
           </span>
           <button
             type="button"
-            onClick={() => updateClips.mutate([{ clipId: clip.clipId, keep: true }])}
+            onClick={() =>
+              updateClips.mutate([{ clipId: clip.clipId, keep: true }])
+            }
             aria-label="Keep clip"
             className={cn(
               "flex size-7 items-center justify-center rounded-md border",
@@ -173,7 +185,9 @@ export function ClipRow({
           </button>
           <button
             type="button"
-            onClick={() => updateClips.mutate([{ clipId: clip.clipId, keep: false }])}
+            onClick={() =>
+              updateClips.mutate([{ clipId: clip.clipId, keep: false }])
+            }
             aria-label="Exclude clip"
             className={cn(
               "flex size-7 items-center justify-center rounded-md border",

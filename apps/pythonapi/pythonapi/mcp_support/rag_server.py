@@ -88,6 +88,8 @@ def build_rag_mcp_server(
     async def get_document(document_id: str) -> dict | None:
         repository = dependencies_provider().document_repository
         document = await repository.get_document(document_id)
-        return DocumentSummary.from_document(document).model_dump() if document else None
+        if document is None:
+            return None
+        return DocumentSummary.from_document(document).model_dump()
 
     return mcp
