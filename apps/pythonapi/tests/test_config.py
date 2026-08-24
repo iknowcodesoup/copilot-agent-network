@@ -23,6 +23,7 @@ MAY_BE_NONE = frozenset(
         "POSTGRES_URL",
         "QDRANT_API_KEY",
         "REDIS_URL",
+        "ORCHESTRATOR_AGENT_A2A_URL",
         "RESEARCH_AGENT_A2A_URL",
         "VOICE_AGENT_A2A_URL",
         "VOICE_FACTORY_URL",

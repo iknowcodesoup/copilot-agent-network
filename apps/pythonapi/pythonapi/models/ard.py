@@ -22,10 +22,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-# The one media type this catalog publishes. Every entry points at an A2A
-# Agent Card, which is what holds the capabilities - an ARD entry never
-# restates them.
+# The two media types this catalog publishes. An a2a-agent-card entry points
+# at a real A2A Agent Card, which is what holds its capabilities - an ARD
+# entry never restates them. An mcp-server-card entry carries its descriptor
+# inline in `data` instead: the MCP protocol has no served JSON resource for
+# `url` to point at, only a runtime handshake over its own transport.
 A2A_AGENT_CARD_MEDIA_TYPE = "application/a2a-agent-card+json"
+MCP_SERVER_CARD_MEDIA_TYPE = "application/mcp-server-card+json"
 
 # Fixed by the ai-catalog schema, which declares specVersion as an enum of
 # exactly this value. It is not the spec document's draft number.

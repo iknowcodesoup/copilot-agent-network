@@ -35,22 +35,6 @@ export function RunActions({ run }: { run: VoiceRun }) {
           {retryRun.isPending ? "Retrying…" : "Retry"}
         </Button>
       )}
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={busy}
-        onClick={() => {
-          if (!window.confirm("Delete this run? The video and its clips stay."))
-            return;
-          deleteRun.mutate(run.id, {
-            onSuccess: () => setSelectedRunId(null),
-          });
-        }}
-        className="text-destructive hover:text-destructive"
-      >
-        <Trash2 />
-        {deleteRun.isPending ? "Deleting…" : "Delete run"}
-      </Button>
       {(retryRun.isError || deleteRun.isError) && (
         <span className="text-xs text-destructive">
           {((retryRun.error ?? deleteRun.error) as Error).message}

@@ -1,10 +1,10 @@
 """Agentic Resource Discovery: the manifest, the registry, and the ranking.
 
-These tests assert the parts the official conformance tool cannot reach on its
-own. The tool probes `/search` with a filter that selects MCP servers, and this
-catalog publishes only A2A agents, so its probe correctly returns an empty list
-and never inspects a result item. The shape of a populated result is checked
-here instead.
+The catalog now publishes both media types this deployment has: three A2A
+agents (Orchestrator, Research, Voice) and one MCP server (RAG). That is what
+makes the official conformance tool's `/search` probe - which filters for
+`application/mcp-server-card+json` - a real check here instead of one that
+matches nothing. See `test_search_filters_on_a_field_path`.
 
 The ranking test is the CAP-8 success criterion, and it is a real comparison in
 both directions: a voice question must rank the Voice Agent first, and a
@@ -21,9 +21,12 @@ from pythonapi.models.ard import (
     A2A_AGENT_CARD_MEDIA_TYPE,
     CATALOG_SPEC_VERSION,
     MAXIMUM_REPRESENTATIVE_QUERIES,
+    MCP_SERVER_CARD_MEDIA_TYPE,
     MINIMUM_REPRESENTATIVE_QUERIES,
     CatalogQuery,
 )
+
+CATALOG_ENTRY_COUNT = 4
 
 MANIFEST_PATH = "/.well-known/ai-catalog.json"
 REGISTRY_PREFIX = "/api/ard"
@@ -48,7 +51,7 @@ def test_manifest_is_served_at_the_well_known_uri(client):
     body = response.json()
     assert body["specVersion"] == CATALOG_SPEC_VERSION
     assert body["host"]["displayName"] == settings.ARD_PUBLISHER_DISPLAY_NAME
-    assert len(body["entries"]) == 2
+    assert len(body["entries"]) == CATALOG_ENTRY_COUNT
 
 
 def test_manifest_has_only_the_three_root_properties(client):
@@ -81,6 +84,38 @@ def test_entries_are_derived_from_the_agent_cards():
     assert voice.url.endswith("/agents/voice/.well-known/agent-card.json")
     # Skill ids, straight off the card.
     assert "voice_status" in voice.capabilities
+
+
+def test_orchestrator_entry_is_a_real_a2a_agent_marked_as_the_entry_point():
+    """The Orchestrator's own A2A card, not a fabricated AG-UI stand-in."""
+    entries = build_catalog().entries
+    orchestrator = _entry_by_name(entries, "Orchestrator Agent")
+
+    assert orchestrator.identifier == (
+        f"urn:air:{settings.ARD_PUBLISHER_DOMAIN}:agent:orchestrator-agent"
+    )
+    assert orchestrator.type == A2A_AGENT_CARD_MEDIA_TYPE
+    assert orchestrator.url.endswith(
+        "/agents/orchestrator/.well-known/agent-card.json"
+    )
+    assert "assist" in orchestrator.capabilities
+    assert orchestrator.metadata == {"role": "orchestrator"}
+
+
+def test_mcp_server_entry_carries_data_instead_of_url():
+    """No served card resource exists for `url` to point at - see the
+    module docstring in core/ard_catalog.py."""
+    entries = build_catalog().entries
+    rag_server = _entry_by_name(entries, "RAG MCP Server")
+
+    assert rag_server.identifier == (
+        f"urn:air:{settings.ARD_PUBLISHER_DOMAIN}:server:rag-mcp-server"
+    )
+    assert rag_server.type == MCP_SERVER_CARD_MEDIA_TYPE
+    assert rag_server.url is None
+    assert rag_server.data["protocol"] == "mcp"
+    assert "search_documents" in rag_server.capabilities
+    assert "answer_question" in rag_server.capabilities
 
 
 def test_representative_queries_stay_within_the_size_the_spec_asks_for():
@@ -128,8 +163,10 @@ def test_a_search_result_is_a_flat_entry_with_score_and_source(client):
 
 
 def test_search_filters_on_a_field_path(client):
-    """The conformance probe filters for a media type this catalog never
-    publishes, so an empty result is the correct answer, not a failure."""
+    """The exact filter the official conformance tool's `/search` probe
+    sends. It used to match nothing here, because the catalog held only A2A
+    agents - see the module docstring. It now matches the RAG MCP server, so
+    the probe's result-item assertions execute against real data."""
     response = client.post(
         f"{REGISTRY_PREFIX}/search",
         json={
@@ -143,7 +180,9 @@ def test_search_filters_on_a_field_path(client):
     )
 
     assert response.status_code == 200
-    assert response.json()["results"] == []
+    results = response.json()["results"]
+    assert [item["displayName"] for item in results] == ["RAG MCP Server"]
+    assert results[0]["type"] == "application/mcp-server-card+json"
 
 
 def test_search_honours_the_page_size(client):
@@ -167,14 +206,17 @@ def test_explore_returns_facet_counts(client):
     assert response.status_code == 200
     body = response.json()
     assert body["resultType"] == "facets"
-    assert body["facets"]["type"] == {A2A_AGENT_CARD_MEDIA_TYPE: 2}
+    assert body["facets"]["type"] == {
+        A2A_AGENT_CARD_MEDIA_TYPE: 3,
+        MCP_SERVER_CARD_MEDIA_TYPE: 1,
+    }
 
 
 def test_agents_listing_is_paginated_in_shape(client):
     body = client.get(f"{REGISTRY_PREFIX}/agents").json()
 
-    assert body["total"] == 2
-    assert len(body["items"]) == 2
+    assert body["total"] == CATALOG_ENTRY_COUNT
+    assert len(body["items"]) == CATALOG_ENTRY_COUNT
 
 
 @pytest.mark.asyncio
@@ -200,4 +242,4 @@ async def test_an_entry_that_matches_nothing_is_still_returned(catalog):
         CatalogQuery(text="zzzz quantum chromodynamics zzzz"), page_size=10
     )
 
-    assert len(results) == 2
+    assert len(results) == CATALOG_ENTRY_COUNT

@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { useYoutubePlayer } from "./use_youtube_player";
 import { youtubeVideoId } from "./derive";
 import type { VideoSummary } from "./types";
 
 /*
- * One instruction for the muted preview, sent by whoever drives it.
+ * One instruction for the player, sent by whoever drives it.
  *
  * `token` is why this is an object and not a bare number of seconds. Two
  * plays of one clip carry the same startSec, and a value-equal prop leaves
@@ -18,6 +18,10 @@ export interface VideoCue {
   action: "seek" | "play" | "pause";
   /* absolute position in the video, in seconds. "pause" ignores it. */
   startSec: number;
+  /* Where a "play" cue should stop itself. The video's own audio is now the
+     sound, so nothing else marks the end of a clip the way a trimmed WAV's
+     own duration used to. Omitted for a bare seek or an untimed play. */
+  endSec?: number;
   token: number;
 }
 
@@ -30,13 +34,20 @@ export interface VideoCue {
 export function YoutubeEmbedPlayer({
   video,
   cue,
+  onPlaying,
+  onPause,
 }: {
   video: VideoSummary;
   cue: VideoCue | null;
+  /* Mirrors the player's own state back to whoever is showing a play/pause
+     button for it - there is no other way to know playback stopped, since
+     the end-of-clip pause happens inside the player hook, not at the caller. */
+  onPlaying?: () => void;
+  onPause?: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const videoId = youtubeVideoId(video.url);
-  const { containerRef, ready, seekTo, playVideo, pauseVideo } =
+  const { containerRef, ready, playing, seekTo, playVideo, pauseVideo } =
     useYoutubePlayer(videoId, mounted);
 
   /* A play cue mounts the player itself. Waiting for the facade click first
@@ -53,12 +64,21 @@ export function YoutubeEmbedPlayer({
       return;
     }
     seekTo(cue.startSec);
-    if (cue.action === "play") playVideo();
+    if (cue.action === "play") playVideo(cue.endSec);
     // The three player calls are recreated every render but always read the
     // latest player ref, so only ready and the cue trigger this - including
     // them would re-seek on every render. `ready` stays a dependency so a
     // cue that arrives before the player exists replays once it does.
   }, [ready, cue]);
+
+  const followersRef = useRef({ onPlaying, onPause });
+  useEffect(() => {
+    followersRef.current = { onPlaying, onPause };
+  });
+  useEffect(() => {
+    if (playing) followersRef.current.onPlaying?.();
+    else followersRef.current.onPause?.();
+  }, [playing]);
 
   if (!videoId) return null;
 

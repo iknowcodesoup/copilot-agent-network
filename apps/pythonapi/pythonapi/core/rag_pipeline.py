@@ -69,6 +69,44 @@ async def _retrieve_and_rerank(
 
 
 @observe()
+async def retrieve_documents(
+    repository: DocumentRepository,
+    embedding_index: QdrantEmbeddingIndex,
+    embedding_client: EmbeddingClient,
+    reranker: Reranker,
+    pii_masker: PiiMasker | None,
+    query: str,
+    top_k: int,
+    prefetch_limit: int = 20,
+) -> list[SearchResultItem]:
+    """Retrieve and rerank chunks, without generating an answer.
+
+    The MCP `search_documents` tool needs scored source chunks, not prose -
+    an MCP client does its own reasoning over them. Shares the mask/retrieve/
+    reconstitute steps with `search_and_generate`; only the generation call
+    and its cache are skipped.
+    """
+    masked_query = await pii_masker.mask(query) if pii_masker is not None else query
+    results = await _retrieve_and_rerank(
+        repository,
+        embedding_index,
+        embedding_client,
+        reranker,
+        masked_query,
+        top_k,
+        prefetch_limit,
+    )
+    if pii_masker is not None:
+        results = [
+            result.model_copy(
+                update={"text": await pii_masker.reconstitute(result.text)}
+            )
+            for result in results
+        ]
+    return results
+
+
+@observe()
 async def search_and_generate(
     repository: DocumentRepository,
     embedding_index: QdrantEmbeddingIndex,

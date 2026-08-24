@@ -12,8 +12,10 @@ from datetime import UTC, datetime
 
 import pytest
 
+from pythonapi.core.voice_factory_gateway import VoiceFactoryError
 from pythonapi.dependencies import (
     get_required_voice_contribution_repository,
+    get_required_voice_factory_gateway,
     get_required_voice_repository,
     get_required_voice_run_repository,
     get_voice_factory_gateway,
@@ -72,16 +74,25 @@ def contribution_repository() -> InMemoryVoiceContributionRepository:
 
 
 class FakeTitleGateway:
-    """Only what a title lookup needs. assign and get_voice ask the factory
-    for the video's name and for nothing else."""
+    """What assign, get_voice, and commit need: a title lookup and a place to
+    record the speaker map/commit pass commit_reviewed_run sends the factory."""
 
     def __init__(self) -> None:
         self.videos: list[dict] = [
             {"video_id": "vid_abc123", "title": "Janeway speaks"}
         ]
+        self.commit_calls: list[dict] = []
+        self.committed: dict[str, int] = {}
+        self.fail_commit_with: VoiceFactoryError | None = None
 
     async def list_videos(self) -> list[dict]:
         return list(self.videos)
+
+    async def commit_clips(self, assignments: dict) -> dict:
+        if self.fail_commit_with is not None:
+            raise self.fail_commit_with
+        self.commit_calls.append(assignments)
+        return dict(self.committed)
 
 
 @pytest.fixture
@@ -99,6 +110,7 @@ def assign_client(
         contribution_repository
     )
     app.dependency_overrides[get_voice_factory_gateway] = lambda: title_gateway
+    app.dependency_overrides[get_required_voice_factory_gateway] = lambda: title_gateway
     return client
 
 
@@ -285,7 +297,7 @@ def test_assign_reports_404_for_an_unknown_run(assign_client):
 
 @pytest.mark.asyncio
 async def test_commit_advances_an_assigned_run_to_committed(
-    assign_client, run_repository, voice_repository
+    assign_client, run_repository, voice_repository, title_gateway
 ):
     await run_repository.create_run(
         make_run(
@@ -305,6 +317,51 @@ async def test_commit_advances_an_assigned_run_to_committed(
 
     stored_voice = await voice_repository.get_voice("voice1")
     assert stored_voice.phase is VoicePhase.AWAITING_COMMIT
+
+    # the whole point of committing: the factory's speaker_map.json and its
+    # dataset directory learn what assign_run_speakers only ever told Postgres
+    assert title_gateway.commit_calls == [{"vid_abc123": {"SPEAKER_00": "Janeway"}}]
+
+
+@pytest.mark.asyncio
+async def test_commit_resolves_every_assigned_voice_by_name(
+    assign_client, run_repository, voice_repository, title_gateway
+):
+    await run_repository.create_run(
+        make_run(
+            VoiceRunPhase.AWAITING_REVIEW,
+            voice_assignments={"SPEAKER_00": "voice1", "SPEAKER_01": "voice2"},
+        )
+    )
+    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
+    await voice_repository.create_voice(make_voice(id="voice2", name="Chakotay"))
+
+    response = assign_client.post("/api/voice/runs/run1/commit")
+
+    assert response.status_code == 200
+    assert title_gateway.commit_calls == [
+        {"vid_abc123": {"SPEAKER_00": "Janeway", "SPEAKER_01": "Chakotay"}}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_commit_reports_502_when_the_factory_cannot_be_reached(
+    assign_client, run_repository, voice_repository, title_gateway
+):
+    await run_repository.create_run(
+        make_run(
+            VoiceRunPhase.AWAITING_REVIEW,
+            voice_assignments={"SPEAKER_00": "voice1"},
+        )
+    )
+    await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
+    title_gateway.fail_commit_with = VoiceFactoryError("refused")
+
+    response = assign_client.post("/api/voice/runs/run1/commit")
+
+    assert response.status_code == 502
+    stored_run = await run_repository.get_run("run1")
+    assert stored_run.phase is VoiceRunPhase.AWAITING_REVIEW
 
 
 @pytest.mark.asyncio

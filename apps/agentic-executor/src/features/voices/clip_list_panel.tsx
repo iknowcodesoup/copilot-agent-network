@@ -20,16 +20,21 @@ export function ClipListPanel({
   runId,
   selectedClipId,
   onSelectClip,
-  onPlayVideoAt,
+  playingClipId,
+  onPlayClip,
   onPauseVideo,
 }: {
   videoId: string;
   runId: string | null;
   selectedClipId: string | null;
   onSelectClip: (clipId: string) => void;
-  /* Passed straight through to every row, which turns a clip offset into an
-     absolute video position. This panel knows nothing about the preview. */
-  onPlayVideoAt: (videoSec: number) => void;
+  /* Which clip is currently sourcing the video's audio, if any. Only one row
+     can be "playing" at a time - the video is the only player now. */
+  playingClipId: string | null;
+  /* Passed straight through to every row, which plays that clip's own
+     startSec..endSec range through the video. This panel knows nothing
+     about the preview. */
+  onPlayClip: (clip: StudioClip) => void;
   onPauseVideo: () => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
@@ -149,19 +154,23 @@ export function ClipListPanel({
           const assignedVoiceId = clip.speakerLabel
             ? (voiceAssignments[clip.speakerLabel] ?? null)
             : null;
+          const groupDefaultName = assignedVoiceId
+            ? (voiceNameById.get(assignedVoiceId) ?? null)
+            : null;
           const speakerLabel = clip.speakerLabel;
+          const studioClip = { ...clip, runId: runId ?? "", videoId } as StudioClip;
           return (
             <ClipRow
               key={clip.clipId}
-              clip={{ ...clip, runId: runId ?? "", videoId } as StudioClip}
+              clip={studioClip}
               ordinal={position + 1}
               selected={clip.clipId === selectedClipId}
               onSelect={() => onSelectClip(clip.clipId)}
-              assignedVoiceName={
-                assignedVoiceId
-                  ? (voiceNameById.get(assignedVoiceId) ?? null)
-                  : null
-              }
+              /* clip.assignedVoice is this one clip's own pin, set directly
+                 on review.csv - see ClipRow. It wins over the speaker's
+                 group default, which is every other clip pyannote grouped
+                 under the same label. */
+              assignedVoiceName={clip.assignedVoice ?? groupDefaultName}
               onAssignSpeaker={
                 runId && speakerLabel
                   ? (voiceId) => assignSpeaker(speakerLabel, voiceId)
@@ -170,7 +179,8 @@ export function ClipListPanel({
               assigning={
                 pendingSpeaker !== null && pendingSpeaker === speakerLabel
               }
-              onPlayVideoAt={onPlayVideoAt}
+              playing={playingClipId === clip.clipId}
+              onPlayClip={() => onPlayClip(studioClip)}
               onPauseVideo={onPauseVideo}
             />
           );

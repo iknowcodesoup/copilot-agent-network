@@ -21,7 +21,11 @@ function ViewTabs() {
   const { view, setView } = useStudio();
   const videos = useVideos();
   const voices = useVoiceList();
-  const tabs: { id: "videos" | "voices" | "search"; label: string; count?: number }[] = [
+  const tabs: {
+    id: "videos" | "voices" | "search";
+    label: string;
+    count?: number;
+  }[] = [
     { id: "videos", label: "Videos", count: videos.data?.length ?? 0 },
     { id: "voices", label: "Voices", count: voices.data?.length ?? 0 },
     { id: "search", label: "Search" },
@@ -57,30 +61,6 @@ function ViewTabs() {
   );
 }
 
-function ConnectionBadge() {
-  const connected = !useVoiceRuns().isError;
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5">
-      <span className="relative flex h-2 w-2">
-        {connected && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-status-complete)] opacity-60" />
-        )}
-        <span
-          className="relative inline-flex h-2 w-2 rounded-full"
-          style={{
-            background: connected
-              ? "var(--color-status-complete)"
-              : "var(--color-status-failed)",
-          }}
-        />
-      </span>
-      <span className="font-mono text-[11px] text-muted-foreground">
-        {connected ? "query connected" : "query unavailable"}
-      </span>
-    </div>
-  );
-}
-
 function StudioShell() {
   const { view } = useStudio();
   const [logOpen, setLogOpen] = useState(true);
@@ -104,7 +84,6 @@ function StudioShell() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <ConnectionBadge />
               <button
                 type="button"
                 onClick={() => setLogOpen((o) => !o)}

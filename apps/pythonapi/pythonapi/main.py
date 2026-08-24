@@ -17,6 +17,7 @@ from limits.storage import storage_from_string
 from openai import AsyncOpenAI
 
 from pythonapi.a2a_support.discovery import SpecialistDirectory
+from pythonapi.agents.orchestrator.app import mount_orchestrator_agent
 from pythonapi.agents.research.app import mount_research_agent
 from pythonapi.agents.voice.app import mount_voice_agent
 from pythonapi.config import settings
@@ -55,6 +56,7 @@ from pythonapi.infrastructure.voice_factory_client import (
     build_voice_factory_client,
     close_voice_factory_client,
 )
+from pythonapi.mcp_support.app import rag_mcp_server_resource
 from pythonapi.middleware.idempotency import IdempotencyMiddleware
 from pythonapi.repositories.memory import InMemoryDocumentRepository
 from pythonapi.repositories.orders import PostgresOrderRepository
@@ -420,6 +422,13 @@ async def lifespan(app: FastAPI):
         app.state.specialist_directory = SpecialistDirectory(local_app=app)
         stack.push_async_callback(app.state.specialist_directory.aclose)
 
+        # Built and mounted fresh each cycle - see rag_mcp_server_resource.
+        app.state.rag_mcp_server = None
+        if settings.RAG_MCP_SERVER_MOUNTED:
+            app.state.rag_mcp_server = await stack.enter_async_context(
+                rag_mcp_server_resource(app)
+            )
+
         # The ARD catalog, derived from the same Agent Cards the specialists
         # publish. Built once because it memoizes an embedding per entry;
         # rebuilding it per request would re-embed the whole catalog.
@@ -482,3 +491,9 @@ if settings.RESEARCH_AGENT_MOUNTED:
 
 if settings.VOICE_AGENT_MOUNTED:
     mount_voice_agent(app)
+
+if settings.ORCHESTRATOR_AGENT_MOUNTED:
+    mount_orchestrator_agent(app)
+
+# The RAG MCP server is not mounted here - see rag_mcp_server_resource for
+# why it has to be built and mounted inside lifespan() instead.

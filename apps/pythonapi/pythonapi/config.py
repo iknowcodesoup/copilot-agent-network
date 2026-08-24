@@ -109,6 +109,16 @@ class Settings(BaseSettings):
     VOICE_AGENT_HOST: str = "0.0.0.0"
     VOICE_AGENT_PORT: int = 8002
 
+    # The Orchestrator's own A2A surface. `/api/agent` (AG-UI) stays the
+    # browser's front door; this is a second, separate one - a real A2A
+    # `assist` skill another agent or tool can delegate into, publishing the
+    # same delegation logic that route_request already gives the browser.
+    ORCHESTRATOR_AGENT_MOUNTED: bool = True
+    ORCHESTRATOR_AGENT_MOUNT_PATH: str = "/agents/orchestrator"
+    ORCHESTRATOR_AGENT_A2A_URL: str | None = None
+    ORCHESTRATOR_AGENT_HOST: str = "0.0.0.0"
+    ORCHESTRATOR_AGENT_PORT: int = 8003
+
     # This service's own base URL, used to build the `url` a mounted agent
     # publishes in its card. A card must advertise where a caller can reach
     # the agent, which this process cannot infer from a request it has not
@@ -143,6 +153,14 @@ class Settings(BaseSettings):
     ARD_SEARCH_PAGE_SIZE_DEFAULT: int = 10
     ARD_EXPLORE_PAGE_SIZE_DEFAULT: int = 20
 
+    # --- MCP RAG server ---------------------------------------------------
+    # Read-only RAG tools over the Model Context Protocol, for any
+    # MCP-capable client - not only the agents in this network. Mounted
+    # inside pythonapi the same way the two A2A specialists are, and listed
+    # in the ARD catalog as a second resource type.
+    RAG_MCP_SERVER_MOUNTED: bool = True
+    RAG_MCP_MOUNT_PATH: str = "/mcp/rag"
+
     @property
     def research_agent_public_url(self) -> str:
         """Where the Research Agent's card says it can be reached."""
@@ -157,6 +175,14 @@ class Settings(BaseSettings):
         return _rpc_endpoint(
             self.VOICE_AGENT_A2A_URL
             or f"{self.PUBLIC_BASE_URL.rstrip('/')}{self.VOICE_AGENT_MOUNT_PATH}"
+        )
+
+    @property
+    def orchestrator_agent_public_url(self) -> str:
+        """Where the Orchestrator's own Agent Card says it can be reached."""
+        return _rpc_endpoint(
+            self.ORCHESTRATOR_AGENT_A2A_URL
+            or f"{self.PUBLIC_BASE_URL.rstrip('/')}{self.ORCHESTRATOR_AGENT_MOUNT_PATH}"
         )
 
     # Vector store for chunk embeddings only - no document/order metadata

@@ -139,10 +139,12 @@ async def assign_run(
 async def commit_run(
     run_id: str,
     repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
+    voice_repository: VoiceRepository = Depends(get_required_voice_repository),
+    gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
 ):
     """End review once every speaker the operator cares about is assigned.
     See core.voice_run_assignment.commit_reviewed_run for the orchestration."""
-    return await commit_reviewed_run(repository, run_id)
+    return await commit_reviewed_run(repository, voice_repository, gateway, run_id)
 
 
 @router.get("/runs/{run_id}/logs", response_model=JobLog)

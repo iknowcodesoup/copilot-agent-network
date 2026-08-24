@@ -94,22 +94,41 @@ export function ClipReviewPane({
     clips.find((clip) => clip.clipId === activeClipId) ?? null;
   const watchUrl = video.url ?? run?.sourceUrl ?? null;
 
-  /* Every instruction to the preview goes through this one cue, so the
-     player has a single caller and no second source of truth about where the
-     video should be. Selecting a clip only re-aims a preview that is already
-     running; playing one starts it. */
+  /* Every instruction to the player goes through this one cue, so it has a
+     single caller and no second source of truth about where the video
+     should be. Selecting a clip only re-aims a player that is already
+     running; playing one starts it. The video's own audio track is the
+     sound now, so a "play" cue also carries the clip's endSec - there is no
+     separate clip WAV whose own duration used to mark the stop. */
   const [videoCue, setVideoCue] = useState<VideoCue | null>(null);
   const cueCount = useRef(0);
-  const sendCue = (action: VideoCue["action"], startSec = 0) => {
+  const sendCue = (
+    action: VideoCue["action"],
+    startSec = 0,
+    endSec?: number,
+  ) => {
     cueCount.current += 1;
-    setVideoCue({ action, startSec, token: cueCount.current });
+    setVideoCue({ action, startSec, endSec, token: cueCount.current });
   };
 
-  const selectClip = (clipId: string) => {
-    setSelectedClipId(clipId);
-    const clip = clips.find((candidate) => candidate.clipId === clipId);
-    if (clip?.startSec != null) sendCue("seek", clip.startSec);
-  };
+  /* Which clip is currently sourcing the video's audio, if any - cleared
+     whenever the player reports it stopped, whether that came from the
+     pause button, the clip's own end, or the operator scrubbing the video
+     directly. */
+  const [playingClipId, setPlayingClipId] = useState<string | null>(null);
+
+  /* The preview is aimed at wherever the active clip now starts, not at
+     wherever it started when it was picked. Selecting a clip moves that
+     start, and so does trimming one - the trim bar's save lands in the clip
+     cache, which is what re-renders this - so watching the number covers
+     both and the trim bar needs no channel of its own. sendCue is left out
+     of the dependencies deliberately: it is rebuilt every render and would
+     re-aim the preview on each one. */
+  const activeStartSec = selectedClip?.startSec ?? null;
+  useEffect(() => {
+    if (activeStartSec != null) sendCue("seek", activeStartSec);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStartSec]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
@@ -121,9 +140,6 @@ export function ClipReviewPane({
             pulse={!["failed", "ready", "awaiting_review"].includes(run.phase)}
             label={run.phase.replaceAll("_", " ")}
           />
-        )}
-        {watchUrl && (
-          <WatchLink url={watchUrl} label="Watch on YouTube" className="ml-auto" />
         )}
       </div>
 
@@ -140,15 +156,27 @@ export function ClipReviewPane({
         </div>
       )}
 
-      <YoutubeEmbedPlayer video={video} cue={videoCue} />
+      <YoutubeEmbedPlayer
+        video={video}
+        cue={videoCue}
+        onPause={() => setPlayingClipId(null)}
+      />
       <ClipTrimBar videoId={video.videoId} clip={selectedClip} />
       <ClipListPanel
         videoId={video.videoId}
         runId={run?.id ?? null}
         selectedClipId={activeClipId}
-        onSelectClip={selectClip}
-        onPlayVideoAt={(videoSec) => sendCue("play", videoSec)}
-        onPauseVideo={() => sendCue("pause")}
+        onSelectClip={setSelectedClipId}
+        playingClipId={playingClipId}
+        onPlayClip={(clip) => {
+          if (clip.startSec == null || clip.endSec == null) return;
+          setPlayingClipId(clip.clipId);
+          sendCue("play", clip.startSec, clip.endSec);
+        }}
+        onPauseVideo={() => {
+          setPlayingClipId(null);
+          sendCue("pause");
+        }}
       />
     </div>
   );

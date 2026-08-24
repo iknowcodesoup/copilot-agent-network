@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/plugins/regions";
-import { Undo2 } from "lucide-react";
 import { useUpdateClips } from "./api/use_videos";
 import { clipAudioUrl } from "./api/query_keys";
 import { formatDuration } from "@/lib/format";
@@ -13,7 +12,6 @@ import type { ClipSummary } from "./types";
    consonant is visible and draggable back in - not just what review.csv
    already kept. Comfortably under the route's MAX_PAD_SEC of 10s. */
 const TRIM_PAD_SEC = 3;
-const TRIM_SAVE_DEBOUNCE_MS = 800;
 const REGION_COLOR = "color-mix(in oklab, var(--primary) 22%, transparent)";
 
 interface TrimBounds {
@@ -49,8 +47,9 @@ function replaceTrimRegion(regions: Regions, bounds: TrimBounds, windowStart: nu
  * One wavesurfer instance, mounted here only - not one per clip row. It
  * loads the padded slice (never full.wav: an hour of 22050 mono decodes to
  * ~85 MB of Float32 and freezes the tab) and draws one draggable region at
- * the clip's current bounds. Dragging an edge debounce-saves the new bounds
- * as a PATCH; the previous bounds stay in a ref so Undo can put them back.
+ * the clip's current bounds. Releasing an edge saves the new bounds as a
+ * PATCH. There is no save button and no undo button: the drag is the whole
+ * gesture, and an edit that went the wrong way is dragged back the same way.
  */
 export function ClipTrimBar({
   videoId,
@@ -60,11 +59,6 @@ export function ClipTrimBar({
   clip: ClipSummary | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const regionsRef = useRef<Regions | null>(null);
-  const lastSavedRef = useRef<TrimBounds | null>(null);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const windowStartRef = useRef(0);
-  const [undoBounds, setUndoBounds] = useState<TrimBounds | null>(null);
   const updateClips = useUpdateClips(videoId);
 
   const clipId = clip?.clipId ?? null;
@@ -72,23 +66,19 @@ export function ClipTrimBar({
   const endSec = clip?.endSec ?? null;
 
   useEffect(() => {
-    setUndoBounds(null);
     if (!containerRef.current || !clipId || startSec == null || endSec == null)
       return;
 
     const windowStart = Math.max(0, startSec - TRIM_PAD_SEC);
-    windowStartRef.current = windowStart;
-    lastSavedRef.current = { start: startSec, end: endSec };
 
     const regions = RegionsPlugin.create();
-    regionsRef.current = regions;
     const waveSurfer = WaveSurfer.create({
       container: containerRef.current,
       height: 64,
       waveColor: resolveCssColor("--muted-foreground", "#888"),
       progressColor: resolveCssColor("--primary", "#7c5cff"),
       cursorColor: resolveCssColor("--primary", "#7c5cff"),
-      url: clipAudioUrl(videoId, clipId, TRIM_PAD_SEC),
+      url: clipAudioUrl(videoId, clipId, { padSec: TRIM_PAD_SEC }),
       plugins: [regions],
     });
 
@@ -98,40 +88,30 @@ export function ClipTrimBar({
       replaceTrimRegion(regions, { start: startSec, end: endSec }, windowStart);
     });
 
+    /* region-updated is the release, not the drag: the plugin emits it once
+       per handle let-go, never per pointer move. So the release is the save,
+       with no timer behind it. The PATCH answers with the new bounds, they
+       land in the clip cache, and the row's audio URL changes with them -
+       which is what makes playback follow the trim on its own. */
     regions.on("region-updated", (region) => {
-      const bounds: TrimBounds = {
-        start: windowStartRef.current + region.start,
-        end: windowStartRef.current + region.end,
-      };
-      setUndoBounds(lastSavedRef.current);
-      lastSavedRef.current = bounds;
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(() => {
-        updateClips.mutate([{ clipId, startSec: bounds.start, endSec: bounds.end }]);
-      }, TRIM_SAVE_DEBOUNCE_MS);
+      updateClips.mutate([
+        {
+          clipId,
+          startSec: windowStart + region.start,
+          endSec: windowStart + region.end,
+        },
+      ]);
     });
 
     return () => {
       cancelled = true;
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       waveSurfer.destroy();
-      regionsRef.current = null;
     };
     // Rebuilding only on clip identity, not on every startSec/endSec write,
     // is what keeps a save's own refetch from tearing down the waveform the
     // operator is mid-drag on - startSec/endSec are deliberately read once,
     // from whichever clip prop this effect saw at clipId's last change.
   }, [videoId, clipId]);
-
-  const undo = () => {
-    const bounds = undoBounds;
-    const regions = regionsRef.current;
-    if (!bounds || !regions || !clipId) return;
-    replaceTrimRegion(regions, bounds, windowStartRef.current);
-    lastSavedRef.current = bounds;
-    setUndoBounds(null);
-    updateClips.mutate([{ clipId, startSec: bounds.start, endSec: bounds.end }]);
-  };
 
   if (!clip)
     return (
@@ -152,14 +132,10 @@ export function ClipTrimBar({
         <span className="font-mono text-[0.7rem] text-muted-foreground">
           {formatDuration(endSec - startSec)} clip, ±{TRIM_PAD_SEC}s shown
         </span>
-        {undoBounds && (
-          <button
-            type="button"
-            onClick={undo}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 font-mono text-[0.7rem] text-muted-foreground hover:text-foreground"
-          >
-            <Undo2 className="size-3" /> Undo
-          </button>
+        {updateClips.isPending && (
+          <span className="font-mono text-[0.7rem] text-muted-foreground">
+            saving…
+          </span>
         )}
       </div>
       <div ref={containerRef} />

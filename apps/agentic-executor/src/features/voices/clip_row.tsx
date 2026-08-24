@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, X, Pencil, AudioLines } from "lucide-react";
+import { Check, X, Pencil, AudioLines, Pause, Play } from "lucide-react";
 import { VoiceSpeakerCombobox } from "./voice_speaker_combobox";
-import { AudioPlayerBar } from "./audio_player_bar";
 import { cn } from "@/lib/utils";
 import type { StudioClip } from "./types";
-import { clipAudioUrl } from "./api/query_keys";
+import { formatDuration } from "@/lib/format";
 import { useUpdateClips } from "./api/use_videos";
 
 /*
@@ -15,10 +14,21 @@ import { useUpdateClips } from "./api/use_videos";
  * and could name a different video than the one this row is actually showing,
  * which silently sent edits to the wrong video's clips.
  *
- * Assignment is not a clip write. A voice is bound to a speaker label, so the
- * combobox reports the label and the voice id and the table records the pair.
- * The row used to write the voice's NAME onto the clip and drop the id, which
- * left the name in review.csv and no row joining the voice to anything.
+ * The combobox means two different things depending on whether this clip
+ * already shows a name (its own pin, or a speaker's inherited default):
+ *
+ * - No name yet: this is the first assignment for the whole speaker group.
+ *   onAssignSpeaker writes the group-wide Postgres map (voiceId, joined to a
+ *   voice_contributions row), same as before - every clip pyannote grouped
+ *   under this label picks up the name, which is the point: auto-label a
+ *   still-undecided group.
+ * - Already has a name: a diarized group is not one person, so a later pick
+ *   here is a correction to THIS clip alone. It writes assignedVoice (a name
+ *   string) straight to review.csv via updateClips, and never touches the
+ *   group map - every other clip in the group is untouched. This is the one
+ *   place a per-clip write is deliberate despite the id-joining concern
+ *   above: a corrected clip's audit trail is the group's contribution row,
+ *   not its own - see clip_row.tsx's onSelect below and voice_run_assignment.py.
  */
 export function ClipRow({
   clip,
@@ -28,7 +38,8 @@ export function ClipRow({
   assignedVoiceName,
   onAssignSpeaker,
   assigning,
-  onPlayVideoAt,
+  playing,
+  onPlayClip,
   onPauseVideo,
 }: {
   clip: StudioClip;
@@ -44,18 +55,21 @@ export function ClipRow({
      voice to, and keying the pair on a clip id would invent a speaker */
   onAssignSpeaker: ((voiceId: string) => void) | null;
   assigning: boolean;
-  /* Where the video preview should be while this clip plays. The row adds
-     the clip's own start, so the caller receives an absolute video position
-     and never has to look the clip up again. */
-  onPlayVideoAt: (videoSec: number) => void;
+  /* Whether THIS row's clip is the one currently sourcing the video's audio.
+     The video is the only player now, so only one row can be "playing" at a
+     time, and the row cannot know that on its own. */
+  playing: boolean;
+  /* Plays this clip's range (startSec..endSec) through the video. The row
+     has no audio of its own to play - the video's own track is the sound. */
+  onPlayClip: () => void;
   onPauseVideo: () => void;
 }) {
   const updateClips = useUpdateClips(clip.videoId);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(clip.text);
-  /* Read once, so the callbacks below close over a plain number instead of
-     re-narrowing an optional property inside a callback. */
-  const clipStartSec = clip.startSec;
+  /* No timing means no range to play - the button stays disabled rather
+     than falling back to playing the whole video. */
+  const hasTiming = clip.startSec != null && clip.endSec != null;
 
   useEffect(() => {
     if (!editing) setText(clip.text);
@@ -96,7 +110,15 @@ export function ClipRow({
           <VoiceSpeakerCombobox
             speakerLabel={clip.speakerLabel}
             assignedVoiceName={assignedVoiceName}
-            onSelect={(voiceId) => onAssignSpeaker(voiceId)}
+            onSelect={(voiceId, voiceName) => {
+              if (assignedVoiceName) {
+                updateClips.mutate([
+                  { clipId: clip.clipId, assignedVoice: voiceName },
+                ]);
+              } else {
+                onAssignSpeaker(voiceId);
+              }
+            }}
           />
         ) : (
           <span
@@ -199,22 +221,25 @@ export function ClipRow({
           </button>
         )}
       </div>
-      <div className="mt-2">
-        <AudioPlayerBar
-          src={clipAudioUrl(clip.videoId, clip.clipId)}
-          peaks={[]}
-          durationSec={clip.durationSec ?? 0}
-          accent="var(--primary)"
-          disabled={!clip.keep}
-          /* A clip with no timing cannot point at a moment in the video, so
-             it plays its audio and leaves the preview alone. */
-          onPlayAt={
-            clipStartSec == null
-              ? undefined
-              : (offsetSec) => onPlayVideoAt(clipStartSec + offsetSec)
-          }
-          onStop={clipStartSec == null ? undefined : onPauseVideo}
-        />
+      <div className="mt-2 flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => (playing ? onPauseVideo() : onPlayClip())}
+          disabled={!hasTiming}
+          aria-label={playing ? "Pause clip" : "Play clip in video"}
+          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {playing ? (
+            <Pause className="size-3.5" />
+          ) : (
+            <Play className="size-3.5 translate-x-px" />
+          )}
+        </button>
+        <span className="font-mono text-[0.7rem] text-muted-foreground">
+          {hasTiming
+            ? `plays from video · ${formatDuration(clip.durationSec ?? 0)}`
+            : "no timing data"}
+        </span>
       </div>
     </div>
   );

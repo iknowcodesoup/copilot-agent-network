@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 
 from pythonapi.core.video_titles import resolve_video_titles
-from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
+from pythonapi.core.voice_factory_gateway import VoiceFactoryError, VoiceFactoryGateway
 from pythonapi.models.voice import RunAssignResponse, VoiceContribution
 from pythonapi.models.voice_run import VoiceRun, VoiceRunPhase
 from pythonapi.repositories.voice_contributions import VoiceContributionRepository
@@ -118,7 +118,12 @@ async def assign_run_speakers(
     )
 
 
-async def commit_reviewed_run(repository: VoiceRunRepository, run_id: str) -> VoiceRun:
+async def commit_reviewed_run(
+    repository: VoiceRunRepository,
+    voice_repository: VoiceRepository,
+    gateway: VoiceFactoryGateway,
+    run_id: str,
+) -> VoiceRun:
     """End review once every speaker the operator cares about is assigned.
 
     Separate from assign_run_speakers on purpose: assigning a speaker must
@@ -126,13 +131,48 @@ async def commit_reviewed_run(repository: VoiceRunRepository, run_id: str) -> Vo
     does only that - no voice phase change, no training. Training starts
     when the operator calls POST /voices/{id}/train, per voice, from the
     training panel.
+
+    Assigning only ever wrote Postgres, so without this the factory's
+    speaker_map.json never learned what assign_run_speakers had decided, and
+    training a voice ran on whatever audio (if any) an old commit had left
+    in its dataset directory. This is what turns the Postgres-side decision
+    into the factory's own record and the merged audio a voice trains on -
+    gateway.commit_clips writes every named video's speaker-map entries and
+    runs one commit pass in the same call.
     """
     run = await require_awaiting_review(repository, run_id)
-    if not any(voice_id is not None for voice_id in run.voice_assignments.values()):
+    assigned_speakers = {
+        speaker_label: voice_id
+        for speaker_label, voice_id in run.voice_assignments.items()
+        if voice_id is not None
+    }
+    if not assigned_speakers:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Assign at least one speaker before committing",
         )
+
+    speaker_map: dict[str, str | None] = {}
+    for speaker_label, voice_id in assigned_speakers.items():
+        voice = await voice_repository.get_voice(voice_id)
+        if voice is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"Voice {voice_id!r} not found"
+            )
+        speaker_map[speaker_label] = voice.name
+
+    try:
+        await gateway.commit_clips({run.video_id: speaker_map})
+    except VoiceFactoryError as error:
+        if error.status_code == status.HTTP_409_CONFLICT:
+            # a shared video another character already claimed a speaker on
+            # differently - a real conflict for the reviewer to resolve, not
+            # a down factory
+            raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"The voice factory did not answer: {error}",
+        ) from error
 
     run.phase = VoiceRunPhase.COMMITTED
     await repository.update_run(run)

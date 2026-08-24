@@ -40,6 +40,10 @@ export function AudioPlayerBar({
   });
 
   useEffect(() => {
+    /* A new src is a different recording - a trim, most often - so the bar
+       must not open part-played at the old one's position. */
+    setPlaying(false);
+    setProgress(0);
     const audio = audioRef.current;
     if (!audio) return;
     const onTime = () =>
