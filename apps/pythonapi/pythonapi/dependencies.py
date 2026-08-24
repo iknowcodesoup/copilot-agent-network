@@ -17,11 +17,11 @@ from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from pythonapi.a2a_support.discovery import SpecialistDirectory
 from pythonapi.core.embeddings import EmbeddingClient
 from pythonapi.core.generation import AnswerGenerator
 from pythonapi.core.pii import PiiMasker
 from pythonapi.core.reranking import Reranker
-from pythonapi.core.voice_agent_tools import VoiceToolRegistry
 from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.repositories.base import DocumentRepository
@@ -117,12 +117,6 @@ def get_required_voice_contribution_repository(
     return request.app.state.voice_contribution_repository
 
 
-def get_voice_tool_registry(request: Request) -> VoiceToolRegistry | None:
-    """None without a voice factory. The chat agent then runs without tools
-    rather than failing, which is what keeps VOICE_FACTORY_URL optional."""
-    return request.app.state.voice_tool_registry
-
-
 def get_required_voice_event_stream(request: Request) -> VoiceEventStream:
     """Always present. Without Redis it publishes and replays nothing, so the
     SSE route still opens and still sends its snapshot."""
@@ -170,3 +164,12 @@ async def enforce_search_rate_limit(request: Request) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Search rate limit exceeded, try again shortly.",
         )
+
+
+def get_specialist_directory(request: Request) -> SpecialistDirectory | None:
+    """The Orchestrator's specialist directory, or None before startup.
+
+    None only happens outside a running lifespan, which is where the chat
+    agent falls back to answering without delegation.
+    """
+    return getattr(request.app.state, "specialist_directory", None)

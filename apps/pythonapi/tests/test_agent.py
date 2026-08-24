@@ -131,11 +131,14 @@ def test_agent_streams_agui_run_lifecycle(client, stub_llm):
 
 
 def test_agent_forwards_messages_to_the_model(client, stub_llm):
+    # A general request, so nothing is delegated and the model is asked.
+    # "what" would route to the Research Agent and never reach the gateway.
+    prompt = "Say hello to me please."
     _, recorder = stub_llm(["ok"])
 
-    client.post("/api/agent", json=_run_input("What is the status?"))
+    client.post("/api/agent", json=_run_input(prompt))
 
-    assert recorder["messages"] == [{"role": "user", "content": "What is the status?"}]
+    assert recorder["messages"] == [{"role": "user", "content": prompt}]
     assert recorder["stream"] is True
 
 

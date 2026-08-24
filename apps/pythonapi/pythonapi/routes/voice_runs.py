@@ -6,9 +6,7 @@ voice_jobs.py, and voice_events.py each cover one resource under the
 core/voice_run_assignment.py rather than carrying it inline.
 """
 
-import uuid
 from contextlib import suppress
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -16,11 +14,11 @@ from pythonapi.core.voice_factory_gateway import (
     VoiceFactoryError,
     VoiceFactoryGateway,
 )
+from pythonapi.core.voice_operations import approve_voice_review, start_voice_run
 from pythonapi.core.voice_run_assignment import (
     assign_run_speakers,
     commit_reviewed_run,
     load_run,
-    require_awaiting_review,
 )
 from pythonapi.dependencies import (
     get_required_voice_contribution_repository,
@@ -59,31 +57,8 @@ async def start_run(
     gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
     repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
 ):
-    """Start a run and return at once.
-
-    Resolving the video id is the only thing done inline: it costs one request,
-    downloads nothing, and every later call needs the id to find the run's
-    directory. Everything after this is the reconciler's job.
-    """
-    try:
-        video_id = await gateway.resolve_video_id(run_request.source_url)
-    except VoiceFactoryError as error:
-        raise unavailable(error) from error
-
-    now = datetime.now(UTC)
-    run = VoiceRun(
-        id=uuid.uuid4().hex,
-        primary_character=run_request.primary_character,
-        source_url=run_request.source_url,
-        video_id=video_id,
-        phase=VoiceRunPhase.DOWNLOADING,
-        diarize=run_request.diarize,
-        num_speakers=run_request.num_speakers,
-        created_at=now,
-        updated_at=now,
-    )
-    await repository.create_run(run)
-    return VoiceRunResponse(id=run.id, phase=run.phase)
+    """Start a run and return at once. See core.voice_operations."""
+    return await start_voice_run(run_request, gateway, repository)
 
 
 @router.get("/runs", response_model=list[VoiceRun])
@@ -125,29 +100,8 @@ async def approve_run(
     gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
     repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
 ):
-    """End the review and start training.
-
-    This is the only transition a person makes. Everything else is the
-    reconciler's.
-    """
-    run = await require_awaiting_review(repository, run_id)
-    if not any(assignment.speaker_map.values()):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "Assign at least one speaker to a character",
-        )
-
-    try:
-        await gateway.set_speaker_map(run.video_id, assignment.speaker_map)
-    except VoiceFactoryError as error:
-        raise unavailable(error) from error
-
-    run.phase = VoiceRunPhase.COMMITTING
-    run.commit_stage_index = 0
-    run.voyicer_job_id = None
-    run.error = None
-    await repository.update_run(run)
-    return run
+    """End the review and start training. See core.voice_operations."""
+    return await approve_voice_review(run_id, assignment, gateway, repository)
 
 
 @router.post(

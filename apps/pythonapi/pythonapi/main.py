@@ -16,7 +16,9 @@ from limits.aio.strategies import MovingWindowRateLimiter
 from limits.storage import storage_from_string
 from openai import AsyncOpenAI
 
+from pythonapi.a2a_support.discovery import SpecialistDirectory
 from pythonapi.agents.research.app import mount_research_agent
+from pythonapi.agents.voice.app import mount_voice_agent
 from pythonapi.config import settings
 from pythonapi.core.document_parsing import (
     build_document_converter,
@@ -26,7 +28,6 @@ from pythonapi.core.embeddings import EmbeddingClient
 from pythonapi.core.generation import AnswerGenerator
 from pythonapi.core.pii import PiiMasker
 from pythonapi.core.reranking import CrossEncoderReranker, LexicalOverlapReranker
-from pythonapi.core.voice_agent_tools import VoiceToolRegistry
 from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.core.voice_run_graph import build_voice_pipeline_graph
@@ -374,16 +375,6 @@ async def lifespan(app: FastAPI):
             stream_key=settings.VOICE_EVENT_STREAM_KEY,
             max_length=settings.VOICE_EVENT_STREAM_MAX_LENGTH,
         )
-        # What the chat agent may call. None without a voice factory, which
-        # leaves the agent a plain chat agent rather than breaking it.
-        app.state.voice_tool_registry = (
-            VoiceToolRegistry(
-                gateway=app.state.voice_factory_gateway,
-                repository=app.state.voice_run_repository,
-            )
-            if app.state.voice_factory_gateway is not None
-            else None
-        )
         app.state.voice_run_reconciler = None
         app.state.voice_training_reconciler = None
         if app.state.voice_factory_gateway is not None:
@@ -420,6 +411,12 @@ async def lifespan(app: FastAPI):
                     )
                 )
             )
+
+        # The Orchestrator's view of the specialists. Resolution is lazy, so
+        # building it here contacts nothing: an agent that is down at startup
+        # can still answer a later request.
+        app.state.specialist_directory = SpecialistDirectory(local_app=app)
+        stack.push_async_callback(app.state.specialist_directory.aclose)
 
         yield
 
@@ -466,3 +463,6 @@ app.include_router(api_router)
 # else in this file changes.
 if settings.RESEARCH_AGENT_MOUNTED:
     mount_research_agent(app)
+
+if settings.VOICE_AGENT_MOUNTED:
+    mount_voice_agent(app)

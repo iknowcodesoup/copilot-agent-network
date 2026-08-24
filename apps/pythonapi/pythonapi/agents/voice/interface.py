@@ -6,14 +6,12 @@ at VOICE_AGENT_A2A_URL, that wraps the existing voice API and voice factory
 queries Qdrant, never owns RAG, and never becomes a second writer of
 voice_runs.phase - VoiceRunReconciler stays the only writer.
 
-The four skills below replace core/voice_agent_tools.py's model-driven tool
-calls for everything routed through the Orchestrator as `voice`. One
-exception: voice_review is reachable here even though the current
-VoiceToolRegistry deliberately omits an approve-review tool - approving a
-review stays a decision a person makes in the browser, not one the model
-reaches for on its own. The skill exists for the Orchestrator to carry an
-explicit user approval through to the Voice Agent, not for a model to call it
-unprompted; Phase 4's routing must preserve that distinction.
+The four skills below are the only way voice work is reached. There is no
+model-driven tool path beside them. voice_review is the one skill the router
+never selects from free text: approving a review stays a decision a person
+makes in the browser. The skill exists so the Orchestrator can carry an
+explicit approval through to the Voice Agent, not so a model can call it
+unprompted.
 
 Defined here, ahead of that service existing, so the Orchestrator's routing
 work (Phase 4) and the Voice Agent's own build (Phase 3) share one
@@ -46,24 +44,65 @@ class VoiceSkill(StrEnum):
     VOICE_REVIEW = "voice_review"
 
 
-class VoiceSearchRequest(BaseModel):
-    """Find a source video to train on. Downloads nothing.
+class VoiceSearchSubject(StrEnum):
+    """What a search asks for.
 
-    Mirrors core/voice_agent_tools.py's search_voice_videos tool.
+    Characters and videos are one skill because the question is the same one:
+    what can I train on. Splitting them would add a skill that carries no new
+    argument and no new failure mode.
     """
 
-    query: str
+    VIDEOS = "videos"
+    CHARACTERS = "characters"
+
+
+class VoiceSearchRequest(BaseModel):
+    """Find a source video to train on, or name the characters that exist.
+
+    Downloads nothing. `query` is unused when the subject is characters, which
+    the factory returns as a whole list.
+    """
+
+    query: str = ""
     limit: int = 10
+    subject: VoiceSearchSubject = VoiceSearchSubject.VIDEOS
 
 
 class VoiceSearchResult(BaseModel):
-    videos: list[VideoResult]
+    videos: list[VideoResult] = []
+    characters: list[str] = []
+
+
+class VoiceRunSummary(BaseModel):
+    """One row of a run listing.
+
+    A summary, not the whole run. A full VoiceRun for every row would fill the
+    reply with fields nobody asked for; naming a run then reads it in full.
+    """
+
+    id: str
+    primary_character: str | None = None
+    phase: str
+    video_title: str | None = None
+    error: str | None = None
 
 
 class VoiceStatusRequest(BaseModel):
-    """Read one run's current phase and progress."""
+    """Read one run's state, or list the runs when no run is named.
 
-    run_id: str
+    `run_id` is optional because "what is running" and "how is run 4f21" are
+    the same question at two levels of detail.
+    """
+
+    run_id: str | None = None
+    limit: int = 25
+
+
+class VoiceStatusResult(BaseModel):
+    """One run in full, or a listing when no run was named."""
+
+    run: VoiceRun | None = None
+    runs: list[VoiceRunSummary] = []
 
 
 class VoiceReviewRequest(BaseModel):
@@ -83,14 +122,14 @@ class VoiceAgentInterface(Protocol):
 
     The real implementation (Phase 3) wraps this in A2A task handling and
     calls the existing VoiceFactoryGateway/VoiceRunRepository - the same
-    dependencies core/voice_agent_tools.py and routes/voice_runs.py already
-    share, so a skill call and a REST call cannot drift apart.
+    dependencies routes/voice_runs.py already uses, so a skill call and a REST
+    call cannot drift apart.
     """
 
     async def voice_search(self, request: VoiceSearchRequest) -> VoiceSearchResult: ...
 
     async def voice_run(self, request: VoiceRunRequest) -> VoiceRunResponse: ...
 
-    async def voice_status(self, request: VoiceStatusRequest) -> VoiceRun: ...
+    async def voice_status(self, request: VoiceStatusRequest) -> VoiceStatusResult: ...
 
     async def voice_review(self, request: VoiceReviewRequest) -> VoiceRun: ...

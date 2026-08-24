@@ -159,10 +159,6 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "http://localhost:4000/v1"
     LLM_API_KEY: str | None = None
     LLM_MODEL: str = "chat-default"
-    # How many times one run may call tools before the agent stops asking the
-    # model again. A model that keeps calling tools would otherwise loop until
-    # the browser gives up, and every step costs a real call to the gateway.
-    AGENT_MAX_TOOL_STEPS: int = 6
     EMBEDDING_MODEL: str = "embedding-default"
     EMBEDDING_SPARSE_MODEL: str = "Qdrant/bm25"
 

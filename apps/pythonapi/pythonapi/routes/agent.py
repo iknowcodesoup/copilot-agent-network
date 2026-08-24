@@ -10,10 +10,10 @@ from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
+from pythonapi.a2a_support.discovery import SpecialistDirectory
 from pythonapi.agents.orchestrator.chat_agent import run_chat_agent
 from pythonapi.config import settings
-from pythonapi.core.voice_agent_tools import VoiceToolRegistry
-from pythonapi.dependencies import get_voice_tool_registry
+from pythonapi.dependencies import get_specialist_directory
 
 router = APIRouter(tags=["Agent"])
 
@@ -22,7 +22,9 @@ router = APIRouter(tags=["Agent"])
 async def post_agent(
     agent_input: RunAgentInput,
     request: Request,
-    tool_registry: VoiceToolRegistry | None = Depends(get_voice_tool_registry),
+    specialist_directory: SpecialistDirectory | None = Depends(
+        get_specialist_directory
+    ),
 ) -> StreamingResponse:
     """Run the chat agent and stream its AG-UI events."""
     # A missing gateway is a deployment error, not a run error: fail before the
@@ -37,7 +39,7 @@ async def post_agent(
     encoder = EventEncoder(accept=request.headers.get("accept"))
 
     async def event_stream():
-        async for event in run_chat_agent(agent_input, tool_registry):
+        async for event in run_chat_agent(agent_input, specialist_directory):
             yield encoder.encode(event)
 
     return StreamingResponse(
