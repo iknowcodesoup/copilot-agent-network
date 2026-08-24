@@ -109,6 +109,8 @@ MANIFEST
 # Test & Coverage Output
 # ==============================================================================
 coverage/
+.coverage
+.coverage.*
 .nyc_output/
 reports/
 

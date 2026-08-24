@@ -13,7 +13,7 @@ Postgres, and routes every model call through LiteLLM.
 3. **ALWAYS ASK BEFORE SEARCHING** — Before endlessly searching ask where files and features are located if a grounded starting point is not provided.
 4. **PLAIN ENGLISH OUTPUT** — Write all output (chat, comments, commits, PRs, specs, UI text) per ASD-STE100: short sentences, active voice, one idea per sentence, no jargon. See `asd-ste100` skill.
 5. **SQLALCHEMY ONLY** — All Postgres access uses SQLAlchemy 2.0 async. Never write raw SQL.
-6. **NEVER RUN LINT/TEST/BUILD** — Never call `nx lint`, `nx test`, `nx run pythonapi:format`, `nx build`, or any test runner directly. Hand the task to `litert-subagent` and read back only its final result line.
+6. **RUN LINT AND TEST DIRECTLY** — Call `nx lint`, `nx test`, and `nx run pythonapi:format` directly and read the output. The `litert-subagent` hand-off is suspended: its local model backend fails on this machine, so the fix loop burns every attempt without converging.
 
 ---
 
@@ -25,7 +25,6 @@ Postgres, and routes every model call through LiteLLM.
 | `naming-conventions` | `.claude/skills/naming-conventions/SKILL.md` | Writing or reviewing any identifier names         |
 | `gof-patterns`       | `.claude/skills/gof-patterns/SKILL.md`       | Designing classes or choosing structural patterns |
 | `asd-ste100`         | `.claude/skills/asd-ste100/SKILL.md`         | Chat, comments, commits, PRs, specs, UI text      |
-| `litert-subagent`    | `.claude/skills/litert-subagent/SKILL.md`    | Lint, test, build tasks; local model inference    |
 
 ## Agents
 
@@ -272,9 +271,7 @@ unset and the factory behaves exactly as before.
 
 ## Build & Test
 
-Claude does not run these directly (Critical Rule 6). See `litert-subagent`,
-which executes and fixes these on Claude's behalf. This table is the task
-reference the subagent's `run_ci_task.py` script reads from.
+Claude runs these directly (Critical Rule 6).
 
 Run from the repo root. Use **PowerShell**.
 
