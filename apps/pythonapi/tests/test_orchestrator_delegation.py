@@ -16,6 +16,7 @@ from pythonapi.a2a_support.discovery import (
 from pythonapi.agents.orchestrator.routing import RoutingCategory, classify
 from pythonapi.agents.orchestrator.specialist_router import route_request
 from pythonapi.agents.voice.interface import VoiceSkill
+from pythonapi.config import settings
 
 RUN_ID = "4f21aabbccddeeff00112233445566aa"
 
@@ -210,14 +211,20 @@ async def test_an_unreachable_specialist_becomes_a_result_not_an_exception():
 
 
 @pytest.mark.asyncio
-async def test_the_directory_reads_skills_from_the_card_not_a_hard_coded_list():
+async def test_the_directory_reads_skills_from_the_card_not_a_hard_coded_list(
+    monkeypatch,
+):
     """CAP-6: the Orchestrator must discover capabilities, never carry its own
     copy of them."""
+    # Point at a port nothing serves. The default URL is the running dev
+    # stack's, so relying on it would make this pass or fail depending on
+    # whether the container happens to be up.
+    monkeypatch.setattr(settings, "RESEARCH_AGENT_A2A_URL", "http://127.0.0.1:9/")
     directory = SpecialistDirectory(local_app=None)
 
     with pytest.raises(SpecialistUnavailable):
-        # Nothing is listening on the configured URL in the test environment,
-        # which is itself the point: skills are only ever read from a card.
+        # There is no card to read, so there is no skill list. A hard-coded
+        # list would answer here, which is exactly what must not happen.
         await directory.skills_for(Specialist.RESEARCH)
 
     await directory.aclose()
