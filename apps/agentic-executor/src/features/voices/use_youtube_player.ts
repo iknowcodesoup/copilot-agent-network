@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 
 /*
  * Minimal typing for the slice of the YouTube IFrame API this hook uses.
- * Not @types/youtube - that types the whole player, and this reads three
+ * Not @types/youtube - that types the whole player, and this reads four
  * members of it.
  */
 interface YoutubePlayer {
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  playVideo: () => void;
+  pauseVideo: () => void;
   destroy: () => void;
 }
 
@@ -88,5 +90,16 @@ export function useYoutubePlayer(videoId: string | null, mounted: boolean) {
     if (ready) playerRef.current?.seekTo(seconds, true);
   };
 
-  return { containerRef, ready, seekTo };
+  /* The player stays muted (see playerVars above), so the browser lets this
+     start playback without a gesture on the iframe itself. The clip WAV is
+     the sound; the video is the picture. */
+  const playVideo = () => {
+    if (ready) playerRef.current?.playVideo();
+  };
+
+  const pauseVideo = () => {
+    if (ready) playerRef.current?.pauseVideo();
+  };
+
+  return { containerRef, ready, seekTo, playVideo, pauseVideo };
 }

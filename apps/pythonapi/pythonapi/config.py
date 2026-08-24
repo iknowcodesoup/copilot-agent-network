@@ -124,6 +124,25 @@ class Settings(BaseSettings):
     # stream open indefinitely (CAP-5: failures stay isolated).
     A2A_TASK_TIMEOUT_SECONDS: float = 60.0
 
+    # --- Agentic Resource Discovery (ARD) --------------------------------
+    # This service is both an ARD publisher (a static manifest at
+    # /.well-known/ai-catalog.json) and an ARD registry (search over it).
+    # Turn it off and those routes disappear; delegation is unaffected,
+    # because the Orchestrator resolves specialists from configured URLs.
+    ARD_ENABLED: bool = True
+
+    # ARD identifiers are domain-anchored, and a real one needs a domain we
+    # can prove we own. This is a placeholder, so the `did:web:` it produces
+    # asserts nothing. The docs say so rather than implying a trust binding
+    # that does not exist.
+    ARD_PUBLISHER_DOMAIN: str = "agents.localhost"
+    ARD_PUBLISHER_DISPLAY_NAME: str = "Copilot Agent Network"
+
+    # Spec defaults: /search returns 10 per page, /explore 20, both capped
+    # at 100.
+    ARD_SEARCH_PAGE_SIZE_DEFAULT: int = 10
+    ARD_EXPLORE_PAGE_SIZE_DEFAULT: int = 20
+
     @property
     def research_agent_public_url(self) -> str:
         """Where the Research Agent's card says it can be reached."""

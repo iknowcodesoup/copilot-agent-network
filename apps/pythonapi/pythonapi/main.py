@@ -20,6 +20,7 @@ from pythonapi.a2a_support.discovery import SpecialistDirectory
 from pythonapi.agents.research.app import mount_research_agent
 from pythonapi.agents.voice.app import mount_voice_agent
 from pythonapi.config import settings
+from pythonapi.core.ard_catalog import AgentCatalog
 from pythonapi.core.document_parsing import (
     build_document_converter,
     build_hybrid_chunker,
@@ -77,6 +78,7 @@ from pythonapi.repositories.voice_runs import (
 )
 from pythonapi.routes import (
     agent,
+    ard,
     documents,
     health,
     openai_proxy,
@@ -418,6 +420,13 @@ async def lifespan(app: FastAPI):
         app.state.specialist_directory = SpecialistDirectory(local_app=app)
         stack.push_async_callback(app.state.specialist_directory.aclose)
 
+        # The ARD catalog, derived from the same Agent Cards the specialists
+        # publish. Built once because it memoizes an embedding per entry;
+        # rebuilding it per request would re-embed the whole catalog.
+        app.state.agent_catalog = AgentCatalog(
+            embedding_client=app.state.embedding_client
+        )
+
         yield
 
 
@@ -453,8 +462,15 @@ api_router.include_router(voice_jobs.router)
 api_router.include_router(voice_events.router)
 api_router.include_router(voice_factory_proxy.router)
 api_router.include_router(voices.router)
+if settings.ARD_ENABLED:
+    api_router.include_router(ard.router)
 
 app.include_router(api_router)
+
+# The ARD manifest is a well-known URI, which RFC 8615 defines relative to the
+# origin root. It cannot move under /api.
+if settings.ARD_ENABLED:
+    app.include_router(ard.well_known_router)
 
 # The specialists mount outside /api on purpose. They are not this service's
 # REST surface - they are separate agents that happen to share the process,

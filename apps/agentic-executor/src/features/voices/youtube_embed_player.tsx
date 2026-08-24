@@ -7,41 +7,69 @@ import { youtubeVideoId } from "./derive";
 import type { VideoSummary } from "./types";
 
 /*
- * Thumbnail facade until the operator presses play. Mounting the real
+ * One instruction for the muted preview, sent by whoever drives it.
+ *
+ * `token` is why this is an object and not a bare number of seconds. Two
+ * plays of one clip carry the same startSec, and a value-equal prop leaves
+ * the effect below dormant while the video rolls on past the clip. A fresh
+ * token makes the repeat fire.
+ */
+export interface VideoCue {
+  action: "seek" | "play" | "pause";
+  /* absolute position in the video, in seconds. "pause" ignores it. */
+  startSec: number;
+  token: number;
+}
+
+/*
+ * Thumbnail facade until something starts the player. Mounting the real
  * YouTube iframe up front would tear it down and rebuild it on every video
  * switch (the review pane keys on videoId), and a static thumbnail costs
  * nothing to swap between videos.
  */
 export function YoutubeEmbedPlayer({
   video,
-  seekToSec,
+  cue,
 }: {
   video: VideoSummary;
-  /* re-target the muted preview when the operator selects a different clip;
-     a no-op until the player has actually been started */
-  seekToSec: number | null;
+  cue: VideoCue | null;
 }) {
-  const [playing, setPlaying] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const videoId = youtubeVideoId(video.url);
-  const { containerRef, ready, seekTo } = useYoutubePlayer(videoId, playing);
+  const { containerRef, ready, seekTo, playVideo, pauseVideo } =
+    useYoutubePlayer(videoId, mounted);
+
+  /* A play cue mounts the player itself. Waiting for the facade click first
+     is what made the very first clip play move nothing at all: no player
+     existed, so the seek had nowhere to land. */
+  useEffect(() => {
+    if (cue?.action === "play") setMounted(true);
+  }, [cue]);
 
   useEffect(() => {
-    if (ready && seekToSec != null) seekTo(seekToSec);
-    // seekTo is recreated every render but always reads the latest player
-    // ref, so only ready/seekToSec need to trigger this - including seekTo
-    // itself would re-seek on every render.
-  }, [ready, seekToSec]);
+    if (!ready || !cue) return;
+    if (cue.action === "pause") {
+      pauseVideo();
+      return;
+    }
+    seekTo(cue.startSec);
+    if (cue.action === "play") playVideo();
+    // The three player calls are recreated every render but always read the
+    // latest player ref, so only ready and the cue trigger this - including
+    // them would re-seek on every render. `ready` stays a dependency so a
+    // cue that arrives before the player exists replays once it does.
+  }, [ready, cue]);
 
   if (!videoId) return null;
 
   return (
     <div className="relative aspect-video max-h-64 w-full shrink-0 overflow-hidden rounded-lg border border-border bg-muted/30">
-      {playing ? (
+      {mounted ? (
         <div ref={containerRef} className="size-full" />
       ) : (
         <button
           type="button"
-          onClick={() => setPlaying(true)}
+          onClick={() => setMounted(true)}
           className="group relative size-full"
           aria-label={`Play preview of ${video.title}`}
         >

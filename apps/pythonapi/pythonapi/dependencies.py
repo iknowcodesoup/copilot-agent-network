@@ -18,6 +18,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pythonapi.a2a_support.discovery import SpecialistDirectory
+from pythonapi.core.ard_catalog import AgentCatalog
 from pythonapi.core.embeddings import EmbeddingClient
 from pythonapi.core.generation import AnswerGenerator
 from pythonapi.core.pii import PiiMasker
@@ -47,6 +48,10 @@ def get_document_repository(request: Request) -> DocumentRepository:
 
 def get_embedding_client(request: Request) -> EmbeddingClient:
     return request.app.state.embedding_client
+
+
+def get_agent_catalog(request: Request) -> AgentCatalog:
+    return request.app.state.agent_catalog
 
 
 def get_embedding_index(request: Request) -> QdrantEmbeddingIndex:

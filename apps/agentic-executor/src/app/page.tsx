@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StudioProvider, useStudio } from "@/features/chat/studio_provider";
+import { CopilotProvider } from "@/features/chat/copilot_provider";
+import { CopilotStudioTools } from "@/features/chat/copilot_tools";
 import { useVideos } from "@/features/voices/api/use_videos";
 import { useVoiceList } from "@/features/voices/api/use_voices";
 import { useVoiceRuns } from "@/features/voices/api/use_voice_runs";
@@ -162,7 +164,13 @@ export default function Page() {
           pushed state into the query cache every hook below already reads. */}
       <VoiceLiveState />
       <StudioProvider>
-        <StudioShell />
+        {/* CopilotKit sits inside both providers on purpose: the tools it
+            registers read studio selection and write through the same query
+            hooks the components use. */}
+        <CopilotProvider>
+          <CopilotStudioTools />
+          <StudioShell />
+        </CopilotProvider>
       </StudioProvider>
     </QueryClientProvider>
   );

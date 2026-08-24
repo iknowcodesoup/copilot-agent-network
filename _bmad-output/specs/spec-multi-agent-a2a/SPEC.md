@@ -62,7 +62,7 @@ boundary earns its keep.
 
 - **CAP-8**
   - **intent:** The agent network publishes and serves its own catalog under the Agentic Resource Discovery (ARD) specification, so the set of available agents is a queryable resource and not private configuration. This service is both an ARD publisher (a static `ai-catalog` manifest) and an ARD registry (a live search API over that catalog).
-  - **success:** `GET /.well-known/ai-catalog.json` returns a manifest listing both specialists, and `POST /search` with `{"query": {"text": "why is my voice training slow"}}` returns the Voice Agent entry ranked above the Research Agent entry. The official ARD conformance tool passes against both the manifest and the live registry endpoint.
+  - **success:** `GET /.well-known/ai-catalog.json` returns a manifest listing both specialists, and `POST /search` with `{"query": {"text": "why is my voice training slow"}}` returns the Voice Agent entry ranked above the Research Agent entry. `tests/test_ard.py` proves this and every wire-shape rule the spec sets: the manifest schema, the URN format, one-of `url`/`data`, and a search result's flat shape with an integer `score`. The official ARD conformance tool's manifest mode also passes, as an independent, non-authoritative sanity check; its registry mode does not count as evidence, because its `/search` probe hardcodes a filter for `application/mcp-server-card+json` and this catalog holds only `application/a2a-agent-card+json` entries, so the probe's result-item checks never execute against real data.
 
 ## Constraints
 

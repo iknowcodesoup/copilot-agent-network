@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { useSpeakerBoard, useRenameVideo } from "./api/use_videos";
 import { RunActions } from "./run_actions";
 import { StatusPill } from "./status_pill";
 import { WatchLink } from "./watch_link";
-import { YoutubeEmbedPlayer } from "./youtube_embed_player";
+import { YoutubeEmbedPlayer, type VideoCue } from "./youtube_embed_player";
 import { ClipTrimBar } from "./clip_trim_bar";
 import { ClipListPanel } from "./clip_list_panel";
 import { toneForPhase } from "./derive";
@@ -94,6 +94,23 @@ export function ClipReviewPane({
     clips.find((clip) => clip.clipId === activeClipId) ?? null;
   const watchUrl = video.url ?? run?.sourceUrl ?? null;
 
+  /* Every instruction to the preview goes through this one cue, so the
+     player has a single caller and no second source of truth about where the
+     video should be. Selecting a clip only re-aims a preview that is already
+     running; playing one starts it. */
+  const [videoCue, setVideoCue] = useState<VideoCue | null>(null);
+  const cueCount = useRef(0);
+  const sendCue = (action: VideoCue["action"], startSec = 0) => {
+    cueCount.current += 1;
+    setVideoCue({ action, startSec, token: cueCount.current });
+  };
+
+  const selectClip = (clipId: string) => {
+    setSelectedClipId(clipId);
+    const clip = clips.find((candidate) => candidate.clipId === clipId);
+    if (clip?.startSec != null) sendCue("seek", clip.startSec);
+  };
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -123,13 +140,15 @@ export function ClipReviewPane({
         </div>
       )}
 
-      <YoutubeEmbedPlayer video={video} seekToSec={selectedClip?.startSec ?? null} />
+      <YoutubeEmbedPlayer video={video} cue={videoCue} />
       <ClipTrimBar videoId={video.videoId} clip={selectedClip} />
       <ClipListPanel
         videoId={video.videoId}
         runId={run?.id ?? null}
         selectedClipId={activeClipId}
-        onSelectClip={setSelectedClipId}
+        onSelectClip={selectClip}
+        onPlayVideoAt={(videoSec) => sendCue("play", videoSec)}
+        onPauseVideo={() => sendCue("pause")}
       />
     </div>
   );

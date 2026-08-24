@@ -11,6 +11,8 @@ export function AudioPlayerBar({
   durationSec,
   disabled,
   accent = "var(--primary)",
+  onPlayAt,
+  onStop,
 }: {
   src?: string;
   peaks: number[];
@@ -18,31 +20,59 @@ export function AudioPlayerBar({
   seed?: string;
   disabled?: boolean;
   accent?: string;
+  /* Playback started, or moved while playing. `offsetSec` is the position
+     inside this clip, so a caller that knows where the clip sits can follow
+     along. Reported from the media events, not from the button, because a
+     scrub moves the position without touching the button. */
+  onPlayAt?: (offsetSec: number) => void;
+  /* Playback paused or reached the end. */
+  onStop?: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  /* The listeners below are bound once per src. Reading the callbacks
+     through a ref keeps a parent's fresh closures reachable without
+     rebinding four listeners on every render. */
+  const followersRef = useRef({ onPlayAt, onStop });
+  useEffect(() => {
+    followersRef.current = { onPlayAt, onStop };
+  });
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     const onTime = () =>
       setProgress(audio.duration ? audio.currentTime / audio.duration : 0);
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
+    const onPlay = () => {
+      setPlaying(true);
+      followersRef.current.onPlayAt?.(audio.currentTime);
+    };
+    const onPause = () => {
+      setPlaying(false);
+      followersRef.current.onStop?.();
+    };
     const onEnd = () => {
       setPlaying(false);
       setProgress(0);
+      followersRef.current.onStop?.();
+    };
+    /* A scrub while playing must re-aim the follower. A scrub while paused
+       must not, or dragging the waveform would start the video. */
+    const onSeeked = () => {
+      if (!audio.paused) followersRef.current.onPlayAt?.(audio.currentTime);
     };
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("ended", onEnd);
+    audio.addEventListener("seeked", onSeeked);
     return () => {
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("ended", onEnd);
+      audio.removeEventListener("seeked", onSeeked);
     };
   }, [src]);
 

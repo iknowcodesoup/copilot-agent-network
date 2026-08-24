@@ -2,9 +2,11 @@
 
 Implementation plan for Agentic Resource Discovery in `pythonapi`.
 
-**Target spec revision:** ARD v0.9 (Proposal), `ards-project/ard-spec@main`,
-read 2026-08-23. The spec is a draft. Pin this line and update it when the
-implementation moves to a newer revision.
+**Target spec revision:** `ards-project/ard-spec` commit
+`1d25abcf07e081f604dba3ae5398b16c79f20b7b`, read 2026-08-23. The repo also
+carries `spec/ard-v0.91-draft.md`, so the document itself has moved past v0.9.
+The manifest's own `specVersion` is a separate number that the schema fixes at
+`"1.0"`. The spec is still a draft: pin the commit and change it deliberately.
 
 ---
 
@@ -121,19 +123,55 @@ directory is the inward delegation path. Wiring the directory to consume ARD
 would add a second staleness problem on top of the one already open in the
 card cache, and buys nothing while the agent set is fixed at two.
 
-## Conformance
+## What proves this works
 
-The spec ships an official CLI. This is what turns "we implemented ARD" into
-a checkable claim:
+**`tests/test_ard.py` is the evidence, not the official CLI.** The spec ships
+`conformance/bin/conformance-test`, a zero-dependency Python 3 script
+(confirmed 2026-08-23 - no toolchain needed, so it *could* run in CI). Its
+manifest mode is a real, independent check and it passes: JSON Schema draft
+2020-12, the URN pattern, value-or-reference exclusivity, the
+`representativeQueries` size, all validated against our two real entries.
 
-```bash
-./bin/conformance-test manifest <path-to-ai-catalog.json>
-./bin/conformance-test registry http://localhost:8000
+Its **registry mode does not count as evidence here**, and is not treated as
+one. Read its source rather than assuming from a green summary line:
+
+```python
+mock_search_query = {
+    "query": {"text": "weather forecast tools",
+              "filter": {"type": ["application/mcp-server-card+json"]}}
+}
+...
+for idx, item in enumerate(results):   # every real assertion lives in here
+    score = item.get("score")
+    if not isinstance(score, int): ...
 ```
 
-**Open item:** confirm whether `conformance/bin/conformance-test` ships as a
-prebuilt binary or needs a toolchain to build. That decides whether it can go
-in CI or stays a manual gate. Check before promising CI integration.
+The filter is hardcoded to the spec's own sample catalog, a fictional weather
+MCP server we do not run and have no reason to run (MCP is out of scope for
+this capability - see Constraints). Our catalog holds only
+`application/a2a-agent-card+json` entries, so the filter matches nothing, the
+`for` loop body never executes, and the tool prints `PASS` having checked
+nothing about our result shape. Do not report that PASS as proof of anything
+beyond "the endpoint returns HTTP 200 with a `results` key."
+
+So `tests/test_ard.py` carries the real assertions instead, run against real
+catalog data with no filter:
+
+- A search result is **flat**: `score` and `source` sit beside `identifier`,
+  `displayName`, `type` and `url`, not nested under a child.
+- `score` is a Python `int` 0-100, asserted with `isinstance`.
+- `/explore` returns `resultType` as the literal string `"facets"`.
+- The manifest carries exactly `specVersion`, `host`, `entries` - nothing else.
+- Every entry carries exactly one of `url` or `data`.
+- The CAP-8 success signal itself: a voice question ranks the Voice Agent
+  first, a documentation question ranks the Research Agent first, in both
+  directions - so it is a real ranking, not a fixed order.
+
+Run it: `nx test pythonapi` (or `pytest tests/test_ard.py` directly). This is
+the gate. The CLI's manifest mode is worth keeping as a cheap secondary
+sanity check against schema drift; its registry mode is not worth running at
+all for this catalog and should not appear in any report as if it validated
+something it structurally cannot.
 
 ## What is deliberately not built
 
@@ -151,7 +189,8 @@ in CI or stays a manual gate. Check before promising CI integration.
 2. ~~`skill.examples` may be empty.~~ Checked. Both cards populate it.
 3. ~~`/search` and `/explore` may collide.~~ Checked. Resolved by mounting the
    registry under `/api/ard`.
-4. **The conformance tool may not be runnable here.** Its build requirements
-   are still unconfirmed. If it needs a toolchain we do not have, CAP-8's
-   success criterion loses its objective half and falls back to our own tests.
-   Confirm before treating conformance as proven.
+4. ~~**The conformance tool may not be runnable here.**~~ Checked. It is a
+   zero-dependency Python script. Its manifest mode is runnable and useful;
+   its registry mode runs but cannot validate this catalog (see "What proves
+   this works"). CAP-8's objective evidence is `tests/test_ard.py`, not the
+   CLI's registry PASS.

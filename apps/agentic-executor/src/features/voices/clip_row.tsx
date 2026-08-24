@@ -28,6 +28,8 @@ export function ClipRow({
   assignedVoiceName,
   onAssignSpeaker,
   assigning,
+  onPlayVideoAt,
+  onPauseVideo,
 }: {
   clip: StudioClip;
   /* position in the currently-shown list; not stored on the clip, which has
@@ -42,10 +44,18 @@ export function ClipRow({
      voice to, and keying the pair on a clip id would invent a speaker */
   onAssignSpeaker: ((voiceId: string) => void) | null;
   assigning: boolean;
+  /* Where the video preview should be while this clip plays. The row adds
+     the clip's own start, so the caller receives an absolute video position
+     and never has to look the clip up again. */
+  onPlayVideoAt: (videoSec: number) => void;
+  onPauseVideo: () => void;
 }) {
   const updateClips = useUpdateClips(clip.videoId);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(clip.text);
+  /* Read once, so the callbacks below close over a plain number instead of
+     re-narrowing an optional property inside a callback. */
+  const clipStartSec = clip.startSec;
 
   useEffect(() => {
     if (!editing) setText(clip.text);
@@ -196,6 +206,14 @@ export function ClipRow({
           durationSec={clip.durationSec ?? 0}
           accent="var(--primary)"
           disabled={!clip.keep}
+          /* A clip with no timing cannot point at a moment in the video, so
+             it plays its audio and leaves the preview alone. */
+          onPlayAt={
+            clipStartSec == null
+              ? undefined
+              : (offsetSec) => onPlayVideoAt(clipStartSec + offsetSec)
+          }
+          onStop={clipStartSec == null ? undefined : onPauseVideo}
         />
       </div>
     </div>

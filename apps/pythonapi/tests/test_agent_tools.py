@@ -6,8 +6,9 @@ second model step to test. What is left is the hand-off: the agent has to emit
 the AG-UI tool events in the order the CopilotKit client's state machine
 expects, then end the run so the browser can answer.
 
-One test here guards the boundary itself. A voice request must never reach the
-model, because the Voice Agent owns that work now.
+Two tests here guard the boundary itself. A voice request reaches the model
+only with what the Voice Agent found, because the specialist owns the facts
+and the model owns the words. A general request pays for no A2A call at all.
 """
 
 import json
@@ -148,23 +149,52 @@ def stub_llm(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# The boundary: voice work never reaches the model
+# The boundary: the specialists supply the facts, the model supplies the words
 # --------------------------------------------------------------------------
 
 
-def test_a_voice_request_never_reaches_the_model(client, stub_llm):
-    """The Voice Agent owns voice work, so the model is not asked about it.
+def test_a_voice_request_reaches_the_model_with_the_specialist_finding(
+    client, stub_llm
+):
+    """The Voice Agent owns the facts; the model only writes the reply.
 
-    This is the collision the A2A move resolves. Before it, a voice request
-    could be answered by a model tool call instead of by the Voice Agent, and
-    the two could drift apart.
+    This is the collision the A2A move resolves. The model is never given
+    voice work of its own - it gets what the specialist found, as a developer
+    message, and turns that into prose. Answering from the specialist text
+    alone would end the run early and strand every frontend tool, so the model
+    stays in the loop on a delegated request.
     """
-    requests = stub_llm([_text_response("I should never be asked.")])
+    requests = stub_llm([_text_response("Here is what I found.")])
 
     response = client.post("/api/agent", json=_run_input("List the voice runs."))
 
     assert response.status_code == 200
-    assert requests == []
+    assert len(requests) == 1
+
+    findings = [
+        message
+        for message in requests[0]["messages"]
+        if message["role"] == "developer"
+        and message["content"].startswith(chat_agent.SPECIALIST_PREAMBLE)
+    ]
+    # The specialist is unreachable in a TestClient, so the finding reports
+    # that failure rather than being skipped. That is CAP-5: the run still
+    # completes and the user still gets an answer.
+    assert len(findings) == 1
+
+    # Still no server-side tool: every tool the model may call belongs to the
+    # browser, and this run offered none.
+    assert "tools" not in requests[0]
+
+
+def test_a_general_request_carries_no_specialist_finding(client, stub_llm):
+    """Delegation is routed, not unconditional. A general request pays for no
+    A2A call and reaches the model with the transcript alone."""
+    requests = stub_llm([_text_response("Hello there.")])
+
+    client.post("/api/agent", json=_run_input(GENERAL_PROMPT))
+
+    assert [message["role"] for message in requests[0]["messages"]] == ["user"]
 
 
 # --------------------------------------------------------------------------

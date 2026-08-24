@@ -10,6 +10,11 @@ over A2A, so this module runs no tools of its own: it emits the call and ends
 the run, then CopilotKit executes it, appends the result, and posts a new run.
 AG-UI carries no state between runs, which is what makes that hand-off the
 only way a frontend tool can answer.
+
+Delegation feeds the model rather than replacing it. A specialist answers with
+fact, and the model turns that fact into the reply. So one run can consult an
+agent and call a browser tool, which is what a request like "why is this run
+slow, and drop the flagged clips" actually needs.
 """
 
 from __future__ import annotations
@@ -42,6 +47,18 @@ from pythonapi.config import settings
 # and carry no input for the next completion.
 _FORWARDED_ROLES = {"developer", "system", "user", "assistant", "tool"}
 
+# What the specialists found, handed to the model as fact rather than as the
+# answer. Framed as an instruction, because the user asked one assistant a
+# question and should not be read two agents' transcripts in reply.
+SPECIALIST_PREAMBLE = (
+    "The specialist agents were consulted for this request and returned the "
+    "findings below. Treat them as the only current source of truth about "
+    "runs, clips, voices, and documentation, and prefer them over anything "
+    "you already believe. Answer the user from these findings in one voice, "
+    "concisely. Do not mention the agents or this note. Where a finding says "
+    "a lookup failed, tell the user plainly what could not be read.\n\n"
+)
+
 
 async def run_chat_agent(
     agent_input: RunAgentInput,
@@ -56,29 +73,31 @@ async def run_chat_agent(
     """
     yield RunStartedEvent(thread_id=agent_input.thread_id, run_id=agent_input.run_id)
 
-    # Delegation comes first. A request the specialists own is answered from
-    # their results and the model is never asked. Only a general request
-    # reaches the model below.
-    if specialist_directory is not None:
-        delegated = await _delegate(agent_input, specialist_directory)
-        if delegated is not None:
-            message_id = str(uuid4())
-            yield TextMessageStartEvent(message_id=message_id)
-            yield TextMessageContentEvent(message_id=message_id, delta=delegated)
-            yield TextMessageEndEvent(message_id=message_id)
-            yield RunFinishedEvent(
-                thread_id=agent_input.thread_id, run_id=agent_input.run_id
-            )
-            return
-
     client = AsyncOpenAI(
         base_url=settings.LLM_BASE_URL,
         api_key=settings.gateway_api_key,
     )
-    messages = _to_openai_messages(agent_input.messages)
     tool_schemas = _tool_schemas(agent_input)
 
     try:
+        messages = _to_openai_messages(agent_input.messages)
+
+        # Delegation is a retrieval step, not the answer. The specialists stay
+        # the only path to Qdrant and the voice factory, so what they return is
+        # the only fresh fact in the prompt - but the model still writes the
+        # reply and can still call a browser tool in the same run. Answering
+        # from the specialist text alone would end the run early and strand
+        # every frontend tool.
+        if specialist_directory is not None:
+            delegated = await _delegate(agent_input, specialist_directory)
+            if delegated is not None:
+                messages.append(
+                    {
+                        "role": "developer",
+                        "content": SPECIALIST_PREAMBLE + delegated,
+                    }
+                )
+
         message_id = str(uuid4())
         request: dict[str, Any] = {
             "model": settings.LLM_MODEL,
@@ -243,9 +262,9 @@ async def _delegate(
     """Ask the specialists about the newest user message.
 
     Returns None only when the request is general, which is the one case the
-    model answers. A specialist that fails reports that failure to the user:
-    `delegate` already turns every error into a result, so there is nothing
-    here to catch and nothing to fall back to.
+    model answers with no specialist input. A specialist that fails reports
+    that failure as its finding: `delegate` already turns every error into a
+    result, so there is nothing here to catch and nothing to fall back to.
     """
     latest = _latest_user_text(agent_input)
     if not latest:

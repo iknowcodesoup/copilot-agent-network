@@ -20,11 +20,17 @@ export function ClipListPanel({
   runId,
   selectedClipId,
   onSelectClip,
+  onPlayVideoAt,
+  onPauseVideo,
 }: {
   videoId: string;
   runId: string | null;
   selectedClipId: string | null;
   onSelectClip: (clipId: string) => void;
+  /* Passed straight through to every row, which turns a clip offset into an
+     absolute video position. This panel knows nothing about the preview. */
+  onPlayVideoAt: (videoSec: number) => void;
+  onPauseVideo: () => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   /* Which speaker is mid-assign. The mutation alone cannot say: its variables
@@ -164,6 +170,8 @@ export function ClipListPanel({
               assigning={
                 pendingSpeaker !== null && pendingSpeaker === speakerLabel
               }
+              onPlayVideoAt={onPlayVideoAt}
+              onPauseVideo={onPauseVideo}
             />
           );
         })}
