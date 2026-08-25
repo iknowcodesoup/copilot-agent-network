@@ -9,19 +9,22 @@ import { VoiceApiError } from "./api/voice_client"
 import type { VoiceSummary } from "./types"
 
 /*
- * Search-or-create Voice picker for one speaker row (Story 3.5, FR25). Never
- * free-types a value into the assignment - every selection is a real Voice
- * id, picked from search results or created inline through POST /voices.
+ * Search-or-create Voice picker for one clip row (FR25). Never free-types a
+ * value into the assignment - every selection is a real Voice id, picked from
+ * search results or created inline through POST /voices. The id is the whole
+ * answer: the caller assigns by id, and the name is only what is shown.
  */
-export function VoiceSpeakerCombobox({
-  speakerLabel,
+export function VoicePicker({
+  label,
   assignedVoiceName,
   onSelect,
 }: {
-  speakerLabel: string
+  /* what this picker is naming, for the accessible label - the speaker
+     diarization heard, or the clip itself when it heard none */
+  label: string
   /* the currently assigned voice's name, or null when nothing is assigned */
   assignedVoiceName: string | null
-  onSelect: (voiceId: string, voiceName: string) => void
+  onSelect: (voiceId: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -48,7 +51,7 @@ export function VoiceSpeakerCombobox({
   const canCreate = trimmedQuery.length > 0 && !hasExactMatch
 
   function selectVoice(voice: VoiceSummary) {
-    onSelect(voice.id, voice.name)
+    onSelect(voice.id)
     setQuery("")
     setOpen(false)
   }
@@ -56,7 +59,7 @@ export function VoiceSpeakerCombobox({
   function createAndSelect() {
     createVoice.mutate(trimmedQuery, {
       onSuccess: (created) => {
-        onSelect(created.id, trimmedQuery)
+        onSelect(created.id)
         setQuery("")
         setOpen(false)
       },
@@ -74,7 +77,7 @@ export function VoiceSpeakerCombobox({
   return (
     <div ref={containerRef} className="relative w-48">
       <Input
-        aria-label={`Voice for ${speakerLabel}`}
+        aria-label={`Voice for ${label}`}
         placeholder={assignedVoiceName ?? "search or create a voice"}
         className="h-7"
         value={open ? query : (assignedVoiceName ?? "")}

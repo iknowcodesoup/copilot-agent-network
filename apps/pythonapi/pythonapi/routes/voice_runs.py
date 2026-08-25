@@ -2,8 +2,8 @@
 
 Split out of routes/voice.py (Finding 5): this file, voice_videos.py,
 voice_jobs.py, and voice_events.py each cover one resource under the
-/api/voice prefix. assign_run and commit_run delegate their orchestration to
-core/voice_run_assignment.py rather than carrying it inline.
+/api/voice prefix. A run is ingest and nothing else: assigning clips to a
+voice is the Voice's own resource, in routes/voices.py.
 """
 
 from contextlib import suppress
@@ -14,32 +14,20 @@ from pythonapi.core.voice_factory_gateway import (
     VoiceFactoryError,
     VoiceFactoryGateway,
 )
-from pythonapi.core.voice_operations import approve_voice_review, start_voice_run
-from pythonapi.core.voice_run_assignment import (
-    assign_run_speakers,
-    commit_reviewed_run,
-    load_run,
-)
+from pythonapi.core.voice_operations import load_run, start_voice_run
 from pythonapi.dependencies import (
-    get_required_voice_contribution_repository,
     get_required_voice_factory_gateway,
-    get_required_voice_repository,
     get_required_voice_run_reconciler,
     get_required_voice_run_repository,
-    get_voice_factory_gateway,
 )
-from pythonapi.models.voice import RunAssignRequest, RunAssignResponse
 from pythonapi.models.voice_run import (
     JobLog,
-    SpeakerAssignmentRequest,
     TrainingProgress,
     VoiceRun,
     VoiceRunPhase,
     VoiceRunRequest,
     VoiceRunResponse,
 )
-from pythonapi.repositories.voice_contributions import VoiceContributionRepository
-from pythonapi.repositories.voice_repository import VoiceRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
 from pythonapi.routes.voice_route_support import unavailable
 from pythonapi.workers.voice_run_reconciler import VoiceRunReconciler
@@ -93,60 +81,6 @@ async def delete_run(
     await repository.delete_run(run_id)
 
 
-@router.post("/runs/{run_id}/approve", response_model=VoiceRun)
-async def approve_run(
-    run_id: str,
-    assignment: SpeakerAssignmentRequest,
-    gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
-    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
-):
-    """End the review and start training. See core.voice_operations."""
-    return await approve_voice_review(run_id, assignment, gateway, repository)
-
-
-@router.post(
-    "/runs/{run_id}/assign",
-    response_model=RunAssignResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def assign_run(
-    run_id: str,
-    assign_request: RunAssignRequest,
-    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
-    voice_repository: VoiceRepository = Depends(get_required_voice_repository),
-    contribution_repository: VoiceContributionRepository = Depends(
-        get_required_voice_contribution_repository
-    ),
-    gateway: VoiceFactoryGateway | None = Depends(get_voice_factory_gateway),
-):
-    """Map a run's speaker labels to Voices. See
-    core.voice_run_assignment.assign_run_speakers for the orchestration."""
-    return await assign_run_speakers(
-        run_id,
-        assign_request.assignments,
-        repository,
-        voice_repository,
-        contribution_repository,
-        gateway,
-    )
-
-
-@router.post(
-    "/runs/{run_id}/commit",
-    response_model=VoiceRun,
-    status_code=status.HTTP_200_OK,
-)
-async def commit_run(
-    run_id: str,
-    repository: VoiceRunRepository = Depends(get_required_voice_run_repository),
-    voice_repository: VoiceRepository = Depends(get_required_voice_repository),
-    gateway: VoiceFactoryGateway = Depends(get_required_voice_factory_gateway),
-):
-    """End review once every speaker the operator cares about is assigned.
-    See core.voice_run_assignment.commit_reviewed_run for the orchestration."""
-    return await commit_reviewed_run(repository, voice_repository, gateway, run_id)
-
-
 @router.get("/runs/{run_id}/logs", response_model=JobLog)
 async def get_run_logs(
     run_id: str,
@@ -190,9 +124,9 @@ async def retry_run(
 
     The run keeps everything it already produced - clips, review decisions,
     checkpoints - because all of that lives on the voice factory host. It also
-    keeps ingest_stage_index and commit_stage_index, which is what makes this a
-    resume rather than a restart: a run that failed transcoding starts again at
-    the download step, not at a fresh ingest. Only the dead job and the error go.
+    keeps ingest_stage_index, which is what makes this a resume rather than a
+    restart: a run that failed transcoding starts again at the download step,
+    not at a fresh ingest. Only the dead job and the error go.
     """
     run = await load_run(repository, run_id)
     if run.phase is not VoiceRunPhase.FAILED:

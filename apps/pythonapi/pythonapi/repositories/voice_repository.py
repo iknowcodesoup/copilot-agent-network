@@ -242,6 +242,7 @@ class PostgresVoiceRepository:
             row.phase = voice.phase.value
             row.checkpoint_path = voice.checkpoint_path
             row.voyicer_job_id = voice.voyicer_job_id
+            row.compile_stage_index = voice.compile_stage_index
             row.updated_at = utc_now()
             await session.commit()
             return True
@@ -254,6 +255,7 @@ def _row_from_voice(voice: Voice) -> VoiceRow:
         phase=voice.phase.value,
         checkpoint_path=voice.checkpoint_path,
         voyicer_job_id=voice.voyicer_job_id,
+        compile_stage_index=voice.compile_stage_index,
         created_at=voice.created_at,
         updated_at=voice.updated_at,
     )
@@ -266,6 +268,7 @@ def _voice_from_row(row: VoiceRow) -> Voice:
         phase=VoicePhase(row.phase),
         checkpoint_path=row.checkpoint_path,
         voyicer_job_id=row.voyicer_job_id,
+        compile_stage_index=row.compile_stage_index,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

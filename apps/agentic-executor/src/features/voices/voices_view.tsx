@@ -72,8 +72,8 @@ export function VoicesView() {
         {voices.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-10 text-center">
             <p className="text-sm text-muted-foreground">
-              No voices yet. Assign a speaker label on a clip to collect one, or
-              add one manually.
+              No voices yet. Pick a voice on a clip to collect one, or add one
+              manually.
             </p>
           </div>
         ) : (

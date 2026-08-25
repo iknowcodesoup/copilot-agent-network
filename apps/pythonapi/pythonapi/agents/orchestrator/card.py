@@ -42,8 +42,7 @@ def build_orchestrator_agent_card(url: str) -> AgentCard:
                 examples=[
                     "Why is this voice training run taking so long?",
                     "Find Star Trek interview videos with Patrick Stewart.",
-                    "What does the troubleshooting guide say about "
-                    "diarization?",
+                    "What does the troubleshooting guide say about diarization?",
                 ],
             )
         ],

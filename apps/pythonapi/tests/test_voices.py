@@ -2,8 +2,12 @@
 
 import pytest
 
-from pythonapi.dependencies import get_required_voice_repository
+from pythonapi.dependencies import (
+    get_required_voice_clip_repository,
+    get_required_voice_repository,
+)
 from pythonapi.main import app
+from pythonapi.repositories.voice_clips import InMemoryVoiceClipRepository
 from pythonapi.repositories.voice_repository import InMemoryVoiceRepository
 
 
@@ -13,8 +17,16 @@ def repository() -> InMemoryVoiceRepository:
 
 
 @pytest.fixture
-def voice_client(client, repository):
+def clip_repository() -> InMemoryVoiceClipRepository:
+    return InMemoryVoiceClipRepository()
+
+
+@pytest.fixture
+def voice_client(client, repository, clip_repository):
     app.dependency_overrides[get_required_voice_repository] = lambda: repository
+    app.dependency_overrides[get_required_voice_clip_repository] = lambda: (
+        clip_repository
+    )
     return client
 
 
@@ -35,7 +47,7 @@ def test_create_voice_rejects_a_duplicate_name(voice_client):
     assert response.status_code == 409
 
 
-def test_get_voice_returns_the_voice_with_empty_contributions(voice_client):
+def test_get_voice_returns_the_voice_with_no_clips(voice_client):
     created = voice_client.post("/api/voices", json={"name": "Picard"})
     voice_id = created.json()["id"]
 
@@ -46,7 +58,7 @@ def test_get_voice_returns_the_voice_with_empty_contributions(voice_client):
     assert body["name"] == "Picard"
     assert body["phase"] == "awaiting_commit"
     assert body["checkpoint_path"] is None
-    assert body["contributions"] == []
+    assert body["clips"] == []
 
 
 def test_get_voice_reports_404_for_an_unknown_id(voice_client):

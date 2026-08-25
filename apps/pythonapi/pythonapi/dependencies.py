@@ -27,7 +27,7 @@ from pythonapi.core.voice_events import VoiceEventStream
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
 from pythonapi.repositories.base import DocumentRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
-from pythonapi.repositories.voice_contributions import VoiceContributionRepository
+from pythonapi.repositories.voice_clips import VoiceClipRepository
 from pythonapi.repositories.voice_repository import VoiceRepository
 from pythonapi.repositories.voice_runs import VoiceRunRepository
 from pythonapi.workers.embedding_worker import EmbeddingWorkerPool
@@ -116,10 +116,8 @@ def get_required_voice_repository(request: Request) -> VoiceRepository:
     return request.app.state.voice_repository
 
 
-def get_required_voice_contribution_repository(
-    request: Request,
-) -> VoiceContributionRepository:
-    return request.app.state.voice_contribution_repository
+def get_required_voice_clip_repository(request: Request) -> VoiceClipRepository:
+    return request.app.state.voice_clip_repository
 
 
 def get_required_voice_event_stream(request: Request) -> VoiceEventStream:

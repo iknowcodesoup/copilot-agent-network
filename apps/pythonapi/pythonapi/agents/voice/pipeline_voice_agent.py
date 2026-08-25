@@ -15,7 +15,6 @@ from collections.abc import Callable
 from typing import Protocol
 
 from pythonapi.agents.voice.interface import (
-    VoiceReviewRequest,
     VoiceRunSummary,
     VoiceSearchRequest,
     VoiceSearchResult,
@@ -25,9 +24,8 @@ from pythonapi.agents.voice.interface import (
 )
 from pythonapi.core.video_titles import resolve_video_titles
 from pythonapi.core.voice_factory_gateway import VoiceFactoryGateway
-from pythonapi.core.voice_operations import approve_voice_review, start_voice_run
-from pythonapi.core.voice_run_assignment import load_run
-from pythonapi.models.voice_run import VoiceRun, VoiceRunRequest, VoiceRunResponse
+from pythonapi.core.voice_operations import load_run, start_voice_run
+from pythonapi.models.voice_run import VoiceRunRequest, VoiceRunResponse
 from pythonapi.repositories.voice_runs import VoiceRunRepository
 
 
@@ -105,13 +103,4 @@ class PipelineVoiceAgent:
                 )
                 for run in runs
             ]
-        )
-
-    async def voice_review(self, request: VoiceReviewRequest) -> VoiceRun:
-        dependencies = self._dependencies()
-        return await approve_voice_review(
-            request.run_id,
-            request.assignment,
-            dependencies.voice_factory_gateway,
-            dependencies.voice_run_repository,
         )

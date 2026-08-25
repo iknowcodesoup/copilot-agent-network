@@ -40,16 +40,6 @@ _SKILLS = [
         tags=["voice", "status", "progress"],
         examples=["What phase is run 4f21 in?", "Why is my training run slow?"],
     ),
-    AgentSkill(
-        id=VoiceSkill.VOICE_REVIEW.value,
-        name="Approve a review",
-        description=(
-            "Carry a person's approval of a clip review through to the "
-            "factory, and start training."
-        ),
-        tags=["voice", "review", "approval"],
-        examples=["Approve the review for run 4f21 and map speaker 0 to Picard."],
-    ),
 ]
 
 

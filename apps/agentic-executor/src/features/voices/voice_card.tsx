@@ -1,17 +1,20 @@
 "use client";
 
-import { Mic, Users, Clapperboard } from "lucide-react";
+import { Mic, AudioLines, Clapperboard } from "lucide-react";
 import { StatusPill } from "./status_pill";
 import { cn } from "@/lib/utils";
 import type { VoiceDetail } from "./types";
 
 /*
- * What a voice is made of, read from its contributions.
+ * What a voice is made of, read from its clips.
  *
- * A contribution is one speaker label from one video, joined to this voice by
- * id. That is the whole association, so the card counts those rows rather
- * than a stored total - there is no clip count column, and inventing one
- * would give the same fact two writers.
+ * A clip is assigned to this voice by id, and that is the whole association,
+ * so the card counts those rows rather than a stored total - there is no clip
+ * count column, and inventing one would give the same fact two writers.
+ *
+ * Only kept clips train, so the card says how many of them there are. A voice
+ * holding forty clips of which two are kept is two clips of training audio,
+ * and reporting forty would be a promise the compile does not keep.
  */
 export function VoiceCard({
   voice,
@@ -22,10 +25,8 @@ export function VoiceCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const speakerCount = voice.contributions.length;
-  const videoCount = new Set(
-    voice.contributions.map((contribution) => contribution.videoId),
-  ).size;
+  const keptCount = voice.clips.filter((clip) => clip.keep === true).length;
+  const videoCount = new Set(voice.clips.map((clip) => clip.videoId)).size;
   const active = voice.phase === "training";
   return (
     <button
@@ -58,13 +59,13 @@ export function VoiceCard({
         />
       </div>
       <div className="flex items-center gap-3 font-mono text-[0.7rem] text-muted-foreground">
-        {speakerCount === 0 ? (
-          <span>no speakers assigned yet</span>
+        {voice.clips.length === 0 ? (
+          <span>no clips assigned yet</span>
         ) : (
           <>
             <span className="inline-flex items-center gap-1">
-              <Users className="size-3" />
-              {speakerCount} speaker{speakerCount === 1 ? "" : "s"}
+              <AudioLines className="size-3" />
+              {keptCount} clip{keptCount === 1 ? "" : "s"}
             </span>
             <span className="inline-flex items-center gap-1">
               <Clapperboard className="size-3" />

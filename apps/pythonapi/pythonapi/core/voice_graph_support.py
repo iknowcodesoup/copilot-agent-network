@@ -21,7 +21,10 @@ from pythonapi.core.voice_factory_gateway import (
     JOB_STATE_FAILED,
     JOB_STATE_RUNNING,
     JOB_STATE_SUCCEEDED,
+    STAGE_COMPILE_DATASET,
     STAGE_EXPORT,
+    STAGE_PREPROCESS,
+    STAGE_RESAMPLE,
     STAGE_TRAIN,
     VoiceFactoryError,
     VoiceFactoryGateway,
@@ -151,5 +154,69 @@ def exporting_node_factory(
 
         result = await poll_job(gateway, entity, next_phase, state_key, fail)
         return result if result is not None else hold(entity, state_key)
+
+    return node
+
+
+# What COMPILING runs, in order. compile-dataset rebuilds the voice's dataset
+# from every kept clip assigned to it; resample and preprocess turn that into
+# the directory piper_train reads. All three have to finish before TRAINING
+# starts, and each is its own control API job so a failure costs one step.
+COMPILE_STAGES = (STAGE_COMPILE_DATASET, STAGE_RESAMPLE, STAGE_PREPROCESS)
+
+
+def compiling_node_factory(
+    gateway: VoiceFactoryGateway,
+    state_key: str,
+    character_of: Callable[[EntityT], str],
+    fail: Fail,
+    next_phase: Any,
+):
+    """COMPILING: build this voice's training data, one stage per tick.
+
+    compile_stage_index survives a failure, so a retry resumes on the stage
+    that fell over rather than rebuilding the dataset from the top.
+    """
+
+    async def node(state: dict) -> dict:
+        entity = state[state_key]
+        stage_index = min(entity.compile_stage_index, len(COMPILE_STAGES) - 1)
+        stage = COMPILE_STAGES[stage_index]
+
+        if entity.voyicer_job_id is None:
+            try:
+                job_id = await gateway.start_job(
+                    character=character_of(entity), stage=stage
+                )
+            except VoiceFactoryTransientError as error:
+                return defer(entity, f"Could not start {stage}: {error}", state_key)
+            except VoiceFactoryError as error:
+                return fail(entity, f"Could not start {stage}: {error}")
+            entity.voyicer_job_id = job_id
+            entity.compile_stage_index = stage_index
+            return {state_key: entity, "changed": True}
+
+        try:
+            job_state = await gateway.get_job_state(entity.voyicer_job_id)
+        except VoiceFactoryTransientError as error:
+            return defer(
+                entity,
+                f"Could not read job {entity.voyicer_job_id}: {error}",
+                state_key,
+            )
+        except VoiceFactoryError as error:
+            return fail(entity, f"Could not read job {entity.voyicer_job_id}: {error}")
+
+        if job_state == JOB_STATE_RUNNING:
+            return hold(entity, state_key)
+        if job_state != JOB_STATE_SUCCEEDED:
+            return fail(entity, f"Stage {stage} {job_state}. See its log for detail.")
+
+        if stage_index + 1 < len(COMPILE_STAGES):
+            entity.compile_stage_index = stage_index + 1
+            entity.voyicer_job_id = None
+            return {state_key: entity, "changed": True}
+        entity.compile_stage_index = 0
+        return advance(entity, next_phase, state_key)
 
     return node

@@ -27,8 +27,10 @@ from pythonapi.core.voice_run_graph import (
     ingest_stages_for,
 )
 from pythonapi.dependencies import (
+    get_required_voice_clip_repository,
     get_required_voice_event_stream,
     get_required_voice_factory_gateway,
+    get_required_voice_repository,
     get_required_voice_run_reconciler,
     get_required_voice_run_repository,
 )
@@ -37,13 +39,10 @@ from pythonapi.infrastructure.redis_client import (
     build_redis_client,
 )
 from pythonapi.main import app
-from pythonapi.models.orm import (
-    VoiceContributionRow,
-    VoiceRunRow,
-    VoiceRunSpeakerRow,
-)
-from pythonapi.models.voice import VoiceContribution
+from pythonapi.models.orm import VoiceClipRow, VoiceRunRow
+from pythonapi.models.voice import Voice, VoicePhase
 from pythonapi.models.voice_run import (
+    ClipDecision,
     ClipSummary,
     TrainingProgress,
     VideoClips,
@@ -51,9 +50,8 @@ from pythonapi.models.voice_run import (
     VoiceRun,
     VoiceRunPhase,
 )
-from pythonapi.repositories.voice_contributions import (
-    InMemoryVoiceContributionRepository,
-)
+from pythonapi.repositories.voice_clips import InMemoryVoiceClipRepository
+from pythonapi.repositories.voice_repository import InMemoryVoiceRepository
 from pythonapi.repositories.voice_runs import (
     InMemoryVoiceRunRepository,
     _row_from_run,
@@ -228,6 +226,17 @@ def clip(clip_id: str, speaker_label: str | None, keep: bool = True) -> ClipSumm
     )
 
 
+def make_voice(voice_id: str, name: str) -> Voice:
+    now = datetime.now(UTC)
+    return Voice(
+        id=voice_id,
+        name=name,
+        phase=VoicePhase.AWAITING_COMMIT,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 def make_run(phase: VoiceRunPhase, **overrides) -> VoiceRun:
     now = datetime.now(UTC)
     fields = {
@@ -264,10 +273,12 @@ def event_stream(fake_redis) -> VoiceEventStream:
 
 
 @pytest.fixture
-def reconciler(gateway, repository, event_stream) -> VoiceRunReconciler:
+def reconciler(
+    gateway, repository, clip_repository, event_stream
+) -> VoiceRunReconciler:
     return VoiceRunReconciler(
         repository=repository,
-        graph=build_voice_pipeline_graph(gateway),
+        graph=build_voice_pipeline_graph(gateway, clip_repository),
         interval_seconds=0.01,
         event_stream=event_stream,
         lease_seconds=30.0,
@@ -277,12 +288,34 @@ def reconciler(gateway, repository, event_stream) -> VoiceRunReconciler:
 
 
 @pytest.fixture
-def voice_client(client, gateway, repository, event_stream, reconciler):
+def voice_client(
+    client,
+    gateway,
+    repository,
+    clip_repository,
+    voice_repository,
+    event_stream,
+    reconciler,
+):
     app.dependency_overrides[get_required_voice_factory_gateway] = lambda: gateway
     app.dependency_overrides[get_required_voice_run_repository] = lambda: repository
+    app.dependency_overrides[get_required_voice_clip_repository] = lambda: (
+        clip_repository
+    )
+    app.dependency_overrides[get_required_voice_repository] = lambda: voice_repository
     app.dependency_overrides[get_required_voice_event_stream] = lambda: event_stream
     app.dependency_overrides[get_required_voice_run_reconciler] = lambda: reconciler
     return client
+
+
+@pytest.fixture
+def clip_repository() -> InMemoryVoiceClipRepository:
+    return InMemoryVoiceClipRepository()
+
+
+@pytest.fixture
+def voice_repository() -> InMemoryVoiceRepository:
+    return InMemoryVoiceRepository()
 
 
 @pytest.fixture
@@ -335,13 +368,19 @@ def test_start_run_reports_502_when_the_factory_is_unreachable(voice_client, gat
     assert response.status_code == 502
 
 
-def test_speaker_board_groups_clips_and_puts_rejects_last(voice_client, gateway):
-    gateway.clips = [
-        clip("clip_0001", "SPEAKER_01"),
-        clip("clip_0002", "SPEAKER_00"),
-        clip("clip_0003", None, keep=False),
-        clip("clip_0004", "SPEAKER_00"),
-    ]
+@pytest.mark.asyncio
+async def test_speaker_board_groups_clips_and_puts_rejects_last(
+    voice_client, clip_repository
+):
+    await clip_repository.import_clips(
+        "vid_abc123",
+        [
+            clip("clip_0001", "SPEAKER_01"),
+            clip("clip_0002", "SPEAKER_00"),
+            clip("clip_0003", None, keep=False),
+            clip("clip_0004", "SPEAKER_00"),
+        ],
+    )
 
     response = voice_client.get("/api/voice/videos/vid_abc123/clips")
 
@@ -357,10 +396,15 @@ def test_speaker_board_groups_clips_and_puts_rejects_last(voice_client, gateway)
     assert speakers[2]["kept_count"] == 0
 
 
-def test_speaker_board_reads_a_video_no_run_has_claimed(voice_client, gateway):
+@pytest.mark.asyncio
+async def test_speaker_board_reads_a_video_no_run_has_claimed(
+    voice_client, clip_repository
+):
     """The board is keyed on the video, so a person can review a video that
     no voice_runs row references at all."""
-    gateway.clips = [clip("clip_0001", "SPEAKER_00")]
+    await clip_repository.import_clips(
+        "vid_nobody_claimed", [clip("clip_0001", "SPEAKER_00")]
+    )
 
     response = voice_client.get("/api/voice/videos/vid_nobody_claimed/clips")
 
@@ -371,30 +415,43 @@ def test_speaker_board_reads_a_video_no_run_has_claimed(voice_client, gateway):
     assert body["speakers"][0]["clip_count"] == 1
 
 
-def test_speaker_board_names_the_character_from_the_factory_map(voice_client, gateway):
-    """assigned_character comes from the factory's speaker_map.json, which is
-    the one copy. Nothing here keeps a second one."""
-    gateway.clips = [clip("clip_0001", "SPEAKER_00"), clip("clip_0002", "SPEAKER_01")]
-    gateway.speaker_map = {"SPEAKER_00": "janeway", "SPEAKER_01": None}
+@pytest.mark.asyncio
+async def test_speaker_board_names_each_clips_voice_by_id_not_by_a_stored_name(
+    voice_client, clip_repository, voice_repository
+):
+    """A clip stores the voice's id. The name is resolved on every read, so
+    renaming a voice cannot leave a stale label behind on a clip."""
+    await voice_repository.create_voice(make_voice("voice1", "Janeway"))
+    await clip_repository.import_clips(
+        "vid_abc123",
+        [clip("clip_0001", "SPEAKER_00"), clip("clip_0002", "SPEAKER_01")],
+    )
+    await clip_repository.assign_clips("voice1", "vid_abc123", ["clip_0001"])
 
     response = voice_client.get("/api/voice/videos/vid_abc123/clips")
 
     assert response.status_code == 200
     speakers = response.json()["speakers"]
-    assert speakers[0]["assigned_character"] == "janeway"
-    assert speakers[1]["assigned_character"] is None
+    assert speakers[0]["clips"][0]["voice_id"] == "voice1"
+    assert speakers[0]["clips"][0]["voice_name"] == "Janeway"
+    # untouched clip stays unassigned, and reports no name rather than ""
+    assert speakers[1]["clips"][0]["voice_id"] is None
+    assert speakers[1]["clips"][0]["voice_name"] is None
 
 
-def test_get_clips_carries_excluded_reason_through_to_the_speaker_board(
-    voice_client, gateway
+@pytest.mark.asyncio
+async def test_get_clips_carries_excluded_reason_through_to_the_speaker_board(
+    voice_client, clip_repository
 ):
-    """excluded_reason enters at the fake gateway's get_clips (the factory
-    boundary) and must reach the browser through ClipSummary and the
-    speaker-board grouping with no edit -- the same "field absent here never
-    reaches the browser" contract as every other ClipSummary field."""
+    """excluded_reason is stored with the clip and must reach the browser
+    through ClipSummary and the speaker-board grouping with no edit -- the
+    same "field absent here never reaches the browser" contract as every
+    other ClipSummary field."""
     excluded_clip = clip("clip_0001", "SPEAKER_00")
     excluded_clip.excluded_reason = "too_short"
-    gateway.clips = [excluded_clip, clip("clip_0002", "SPEAKER_00")]
+    await clip_repository.import_clips(
+        "vid_abc123", [excluded_clip, clip("clip_0002", "SPEAKER_00")]
+    )
 
     response = voice_client.get("/api/voice/videos/vid_abc123/clips")
 
@@ -407,20 +464,18 @@ def test_get_clips_carries_excluded_reason_through_to_the_speaker_board(
 
 @pytest.mark.asyncio
 async def test_speaker_board_is_shared_across_characters_for_the_same_video(
-    voice_client, gateway, repository
+    voice_client, clip_repository, repository
 ):
     """FR12: claiming an already-ingested video for a second character reads
-    the same shared artifacts, so the call carries only the video id, never a
+    the same shared clips, so the call carries only the video id, never a
     character and never a run."""
-    gateway.clips = [clip("clip_0001", "SPEAKER_00")]
+    await clip_repository.import_clips("vid_abc123", [clip("clip_0001", "SPEAKER_00")])
     await repository.create_run(
-        make_run(
-            VoiceRunPhase.AWAITING_REVIEW, id="run_janeway", primary_character="janeway"
-        )
+        make_run(VoiceRunPhase.INGESTED, id="run_janeway", primary_character="janeway")
     )
     await repository.create_run(
         make_run(
-            VoiceRunPhase.AWAITING_REVIEW,
+            VoiceRunPhase.INGESTED,
             id="run_chakotay",
             primary_character="chakotay",
         )
@@ -432,55 +487,6 @@ async def test_speaker_board_is_shared_across_characters_for_the_same_video(
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["speakers"] == second.json()["speakers"]
-    assert gateway.get_clips_video_ids == ["vid_abc123", "vid_abc123"]
-
-
-@pytest.mark.asyncio
-async def test_approve_writes_the_speaker_map_and_moves_to_committing(
-    voice_client, gateway, repository
-):
-    await repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
-
-    response = voice_client.post(
-        "/api/voice/runs/run1/approve",
-        json={"speaker_map": {"SPEAKER_00": "janeway", "SPEAKER_01": None}},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["phase"] == VoiceRunPhase.COMMITTING
-    assert gateway.speaker_maps == [
-        ("vid_abc123", {"SPEAKER_00": "janeway", "SPEAKER_01": None})
-    ]
-    stored = await repository.get_run("run1")
-    assert stored.phase is VoiceRunPhase.COMMITTING
-    # the map went to the factory and nowhere else: this service keeps no copy
-    assert not hasattr(stored, "speaker_map")
-
-
-@pytest.mark.asyncio
-async def test_approve_rejects_a_run_that_is_not_awaiting_review(
-    voice_client, repository
-):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
-
-    response = voice_client.post(
-        "/api/voice/runs/run1/approve",
-        json={"speaker_map": {"SPEAKER_00": "janeway"}},
-    )
-
-    assert response.status_code == 409
-
-
-@pytest.mark.asyncio
-async def test_approve_rejects_a_map_with_no_character(voice_client, repository):
-    await repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
-
-    response = voice_client.post(
-        "/api/voice/runs/run1/approve",
-        json={"speaker_map": {"SPEAKER_00": None}},
-    )
-
-    assert response.status_code == 422
 
 
 def test_get_run_reports_404_for_an_unknown_id(voice_client):
@@ -491,7 +497,7 @@ def test_get_run_reports_404_for_an_unknown_id(voice_client):
 async def test_get_training_progress_stays_character_scoped(voice_client, repository):
     """get_training_progress has no video_id concept and keeps its own URL
     (FR13 does not apply here -- see the Spec's Boundaries & Constraints)."""
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
+    await repository.create_run(make_run(VoiceRunPhase.DIARIZING))
 
     response = voice_client.get("/api/voice/runs/run1/training")
 
@@ -501,7 +507,9 @@ async def test_get_training_progress_stays_character_scoped(voice_client, reposi
 
 @pytest.mark.asyncio
 async def test_delete_run_cancels_its_job(voice_client, gateway, repository):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING, voyicer_job_id="job7"))
+    await repository.create_run(
+        make_run(VoiceRunPhase.DOWNLOADING, voyicer_job_id="job7")
+    )
 
     response = voice_client.delete("/api/voice/runs/run1")
 
@@ -522,9 +530,11 @@ async def test_delete_video_deletes_it_on_the_factory(voice_client, gateway):
 async def test_delete_video_cascades_to_every_run_pointing_at_it(
     voice_client, gateway, repository
 ):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING, voyicer_job_id="job7"))
     await repository.create_run(
-        make_run(VoiceRunPhase.READY, id="run2", primary_character="chakotay")
+        make_run(VoiceRunPhase.DOWNLOADING, voyicer_job_id="job7")
+    )
+    await repository.create_run(
+        make_run(VoiceRunPhase.INGESTED, id="run2", primary_character="chakotay")
     )
 
     response = voice_client.delete("/api/voice/videos/vid_abc123")
@@ -541,7 +551,7 @@ async def test_delete_video_leaves_other_videos_runs_alone(
     voice_client, gateway, repository
 ):
     await repository.create_run(
-        make_run(VoiceRunPhase.READY, id="run2", video_id="vid_other")
+        make_run(VoiceRunPhase.INGESTED, id="run2", video_id="vid_other")
     )
 
     response = voice_client.delete("/api/voice/videos/vid_abc123")
@@ -566,7 +576,7 @@ async def test_delete_video_502s_when_the_factory_rejects_it(voice_client, gatew
 async def test_reconciler_leaves_a_run_awaiting_review_alone(
     reconciler, repository, gateway
 ):
-    await repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
+    await repository.create_run(make_run(VoiceRunPhase.INGESTED))
 
     changed = await reconciler.tick()
 
@@ -575,7 +585,7 @@ async def test_reconciler_leaves_a_run_awaiting_review_alone(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("phase", [VoiceRunPhase.READY, VoiceRunPhase.FAILED])
+@pytest.mark.parametrize("phase", [VoiceRunPhase.INGESTED, VoiceRunPhase.FAILED])
 async def test_reconciler_leaves_terminal_runs_alone(
     reconciler, repository, gateway, phase
 ):
@@ -586,7 +596,6 @@ async def test_reconciler_leaves_terminal_runs_alone(
 
 
 def test_ingest_stages_for_skips_diarize_when_not_requested():
-    """Same rule commit_stage_index already applies to its three stages."""
     diarized = make_run(VoiceRunPhase.DOWNLOADING, diarize=True)
     plain = make_run(VoiceRunPhase.DOWNLOADING, diarize=False)
 
@@ -643,12 +652,16 @@ async def test_downloading_walks_its_ingest_steps_in_order(
 
 
 @pytest.mark.asyncio
-async def test_a_full_run_reaches_ready(reconciler, repository, gateway):
-    """Walk one run from download to an exported model."""
+async def test_a_full_run_reaches_ingested(reconciler, repository, gateway):
+    """Walk one run from download to the end of ingest.
+
+    That is the whole of a run. It trains nothing: a voice is built from clips
+    spread across many videos, so training belongs to the Voice.
+    """
     gateway.clips = [clip("clip_0001", "SPEAKER_00")]
     await repository.create_run(make_run(VoiceRunPhase.DOWNLOADING))
 
-    async def run_until(phase: VoiceRunPhase, max_ticks: int = 12) -> VoiceRun:
+    async def run_until(phase: VoiceRunPhase, max_ticks: int = 16) -> VoiceRun:
         for _ in range(max_ticks):
             current = await repository.get_run("run1")
             if current.phase is phase:
@@ -661,30 +674,28 @@ async def test_a_full_run_reaches_ready(reconciler, repository, gateway):
 
     # five ingest steps at two ticks apiece, plus the DIARIZING node's own
     # tick, leaves no room to spare in the default budget
-    parked = await run_until(VoiceRunPhase.AWAITING_REVIEW, max_ticks=16)
-    assert parked.phase is VoiceRunPhase.AWAITING_REVIEW
+    finished = await run_until(VoiceRunPhase.INGESTED)
+    assert finished.phase is VoiceRunPhase.INGESTED
 
-    # the human step: approve, which the reconciler never does on its own.
-    # The speaker map goes to the factory, so nothing is set on the run here.
-    parked.phase = VoiceRunPhase.COMMITTING
-    await repository.update_run(parked)
-
-    finished = await run_until(VoiceRunPhase.READY)
-    assert finished.phase is VoiceRunPhase.READY
-
-    stages = [job["stage"] for job in gateway.started_jobs]
-    assert stages == [
+    assert [job["stage"] for job in gateway.started_jobs] == [
         "youtube-download",
         "youtube-transcribe",
         "youtube-chunk",
         "youtube-diarize",
         "youtube-review",
-        "youtube-commit",
-        "resample",
-        "preprocess",
-        "train",
-        "export",
     ]
+
+
+@pytest.mark.asyncio
+async def test_the_reconciler_stops_ticking_an_ingested_run(
+    reconciler, repository, gateway
+):
+    """INGESTED is terminal. Without that, the reconciler would re-tick the
+    run forever and re-fetch its clips on every pass."""
+    await repository.create_run(make_run(VoiceRunPhase.INGESTED))
+
+    assert await reconciler.tick() == 0
+    assert gateway.started_jobs == []
 
 
 @pytest.mark.asyncio
@@ -728,28 +739,6 @@ async def test_ingest_producing_no_clips_fails_the_run(reconciler, repository, g
 
 
 @pytest.mark.asyncio
-async def test_committing_walks_its_three_stages_in_order(
-    reconciler, repository, gateway
-):
-    await repository.create_run(make_run(VoiceRunPhase.COMMITTING))
-
-    for _ in range(6):
-        current = await repository.get_run("run1")
-        if current.phase is VoiceRunPhase.TRAINING:
-            break
-        if gateway.started_jobs:
-            gateway.finish_latest_job()
-        await reconciler.tick()
-
-    assert [job["stage"] for job in gateway.started_jobs] == [
-        "youtube-commit",
-        "resample",
-        "preprocess",
-    ]
-    assert (await repository.get_run("run1")).phase is VoiceRunPhase.TRAINING
-
-
-@pytest.mark.asyncio
 async def test_a_run_deleted_mid_tick_is_dropped(reconciler, repository, gateway):
     await repository.create_run(make_run(VoiceRunPhase.DOWNLOADING))
     runs = await repository.list_active_runs()
@@ -767,9 +756,9 @@ async def test_list_active_runs_excludes_resting_phases(repository):
     for index, phase in enumerate(
         [
             VoiceRunPhase.DOWNLOADING,
-            VoiceRunPhase.AWAITING_REVIEW,
-            VoiceRunPhase.TRAINING,
-            VoiceRunPhase.READY,
+            VoiceRunPhase.INGESTED,
+            VoiceRunPhase.DIARIZING,
+            VoiceRunPhase.INGESTED,
             VoiceRunPhase.FAILED,
         ]
     ):
@@ -779,13 +768,13 @@ async def test_list_active_runs_excludes_resting_phases(repository):
 
     assert {run.phase for run in active} == {
         VoiceRunPhase.DOWNLOADING,
-        VoiceRunPhase.TRAINING,
+        VoiceRunPhase.DIARIZING,
     }
 
 
 @pytest.mark.asyncio
 async def test_update_run_reports_false_for_a_missing_run(repository):
-    assert await repository.update_run(make_run(VoiceRunPhase.TRAINING)) is False
+    assert await repository.update_run(make_run(VoiceRunPhase.DIARIZING)) is False
 
 
 # --- transient failures ---------------------------------------------------
@@ -796,13 +785,15 @@ async def test_a_transient_error_holds_the_phase_and_counts(
     reconciler, repository, gateway
 ):
     """The GPU host can reboot mid-training. That must not kill the run."""
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING, voyicer_job_id="job7"))
+    await repository.create_run(
+        make_run(VoiceRunPhase.DOWNLOADING, voyicer_job_id="job7")
+    )
     gateway.fail_with = VoiceFactoryTransientError("connection refused")
 
     await reconciler.tick()
 
     stored = await repository.get_run("run1")
-    assert stored.phase is VoiceRunPhase.TRAINING
+    assert stored.phase is VoiceRunPhase.DOWNLOADING
     assert stored.error_count == 1
     assert "connection refused" in stored.error
 
@@ -812,7 +803,7 @@ async def test_a_successful_call_resets_the_error_count(
     reconciler, repository, gateway
 ):
     await repository.create_run(
-        make_run(VoiceRunPhase.TRAINING, voyicer_job_id="job7", error_count=2)
+        make_run(VoiceRunPhase.DOWNLOADING, voyicer_job_id="job7", error_count=2)
     )
     gateway.job_states["job7"] = "running"
 
@@ -825,18 +816,20 @@ async def test_a_successful_call_resets_the_error_count(
 
 @pytest.mark.asyncio
 async def test_a_run_fails_only_at_the_error_threshold(reconciler, repository, gateway):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING, voyicer_job_id="job7"))
+    await repository.create_run(
+        make_run(VoiceRunPhase.DOWNLOADING, voyicer_job_id="job7")
+    )
     gateway.fail_with = VoiceFactoryTransientError("connection refused")
 
     for _ in range(MAX_ERRORS - 1):
         await reconciler.tick()
-    assert (await repository.get_run("run1")).phase is VoiceRunPhase.TRAINING
+    assert (await repository.get_run("run1")).phase is VoiceRunPhase.DOWNLOADING
 
     await reconciler.tick()
 
     stored = await repository.get_run("run1")
     assert stored.phase is VoiceRunPhase.FAILED
-    assert stored.failed_from_phase is VoiceRunPhase.TRAINING
+    assert stored.failed_from_phase is VoiceRunPhase.DOWNLOADING
 
 
 @pytest.mark.asyncio
@@ -882,8 +875,7 @@ async def test_a_failure_two_ingest_steps_in_keeps_its_place(
     assert response.status_code == 200
     body = response.json()
     # DOWNLOADING, not youtube-download: the failed step lives one level
-    # down, in ingest_stage_index, same as commit_stage_index does for
-    # COMMITTING
+    # down, in ingest_stage_index
     assert body["phase"] == VoiceRunPhase.DOWNLOADING
     assert body["ingest_stage_index"] == 1
     assert body["failed_job_id"] is None
@@ -911,7 +903,7 @@ async def test_retry_restores_the_previous_phase(voice_client, repository):
     await repository.create_run(
         make_run(
             VoiceRunPhase.FAILED,
-            failed_from_phase=VoiceRunPhase.TRAINING,
+            failed_from_phase=VoiceRunPhase.DIARIZING,
             voyicer_job_id="dead-job",
             error="the host went away",
             error_count=20,
@@ -922,7 +914,7 @@ async def test_retry_restores_the_previous_phase(voice_client, repository):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["phase"] == VoiceRunPhase.TRAINING
+    assert body["phase"] == VoiceRunPhase.DIARIZING
     assert body["voyicer_job_id"] is None
     assert body["error"] is None
     assert body["error_count"] == 0
@@ -931,7 +923,7 @@ async def test_retry_restores_the_previous_phase(voice_client, repository):
 
 @pytest.mark.asyncio
 async def test_retry_rejects_a_run_that_did_not_fail(voice_client, repository):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
+    await repository.create_run(make_run(VoiceRunPhase.DIARIZING))
 
     assert voice_client.post("/api/voice/runs/run1/retry").status_code == 409
 
@@ -943,7 +935,9 @@ async def test_retry_rejects_a_run_that_did_not_fail(voice_client, repository):
 async def test_the_webhook_wakes_the_reconciler_without_touching_the_phase(
     voice_client, repository, reconciler, webhook_token
 ):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING, voyicer_job_id="job7"))
+    await repository.create_run(
+        make_run(VoiceRunPhase.DOWNLOADING, voyicer_job_id="job7")
+    )
 
     response = voice_client.post(
         "/api/voice/jobs/job7/events",
@@ -954,7 +948,7 @@ async def test_the_webhook_wakes_the_reconciler_without_touching_the_phase(
     assert response.status_code == 204
     assert reconciler._pending_wakes == {"run1"}
     stored = await repository.get_run("run1")
-    assert stored.phase is VoiceRunPhase.TRAINING
+    assert stored.phase is VoiceRunPhase.DOWNLOADING
     assert stored.current_epoch == 42
     assert stored.current_loss == 31.2
 
@@ -1011,7 +1005,7 @@ async def test_a_wake_reconciles_only_the_named_run(reconciler, repository, gate
 
 @pytest.mark.asyncio
 async def test_two_instances_cannot_claim_the_same_run(repository):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
+    await repository.create_run(make_run(VoiceRunPhase.DIARIZING))
 
     first = await repository.claim_runs("instance-a", lease_seconds=30)
     second = await repository.claim_runs("instance-b", lease_seconds=30)
@@ -1022,7 +1016,7 @@ async def test_two_instances_cannot_claim_the_same_run(repository):
 
 @pytest.mark.asyncio
 async def test_a_released_run_can_be_claimed_again(repository):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
+    await repository.create_run(make_run(VoiceRunPhase.DIARIZING))
     await repository.claim_runs("instance-a", lease_seconds=30)
 
     await repository.release_run("run1")
@@ -1033,7 +1027,7 @@ async def test_a_released_run_can_be_claimed_again(repository):
 @pytest.mark.asyncio
 async def test_an_expired_lease_lets_another_instance_take_over(repository):
     """An API instance that dies mid-run must not strand it."""
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
+    await repository.create_run(make_run(VoiceRunPhase.DIARIZING))
     await repository.claim_runs("instance-that-died", lease_seconds=-1)
 
     assert [run.id for run in await repository.claim_runs("instance-b", 30)] == ["run1"]
@@ -1052,20 +1046,20 @@ async def test_a_phase_change_publishes_the_complete_run(
     await reconciler.tick()
 
     published = await published_runs(event_stream)
-    assert [run.phase for run in published] == [VoiceRunPhase.AWAITING_REVIEW]
+    assert [run.phase for run in published] == [VoiceRunPhase.INGESTED]
     assert published[0].id == "run1"
 
 
 @pytest.mark.asyncio
 async def test_events_replay_from_a_position(reconciler, repository, event_stream):
-    run = make_run(VoiceRunPhase.TRAINING)
+    run = make_run(VoiceRunPhase.DIARIZING)
     first_id = await event_stream.publish(run)
-    run.phase = VoiceRunPhase.EXPORTING
+    run.phase = VoiceRunPhase.DIARIZING
     await event_stream.publish(run)
 
     later = await event_stream.read_after(first_id, 10)
 
-    assert [event.data.phase for event in later] == [VoiceRunPhase.EXPORTING]
+    assert [event.data.phase for event in later] == [VoiceRunPhase.DIARIZING]
     assert [event.event_type for event in later] == [EVENT_RUN_UPDATED]
 
 
@@ -1079,7 +1073,7 @@ async def test_a_redis_failure_does_not_roll_back_postgres(
 
     await reconciler.tick()
 
-    assert (await repository.get_run("run1")).phase is VoiceRunPhase.AWAITING_REVIEW
+    assert (await repository.get_run("run1")).phase is VoiceRunPhase.INGESTED
 
 
 @pytest.mark.asyncio
@@ -1088,7 +1082,7 @@ async def test_publishing_without_redis_is_a_no_op():
         redis=None, blocking_redis=None, stream_key="unused", max_length=10
     )
 
-    assert await stream.publish(make_run(VoiceRunPhase.TRAINING)) is None
+    assert await stream.publish(make_run(VoiceRunPhase.DIARIZING)) is None
     assert await stream.current_position() == STREAM_START
     assert await stream.read_after(STREAM_START, 10) == []
 
@@ -1193,7 +1187,7 @@ async def open_event_stream(repository, event_stream, headers: dict | None = Non
 async def test_the_event_stream_opens_with_a_snapshot(
     fast_heartbeat, repository, event_stream
 ):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
+    await repository.create_run(make_run(VoiceRunPhase.DIARIZING))
 
     async with open_event_stream(repository, event_stream) as (response, next_chunk):
         snapshot = await next_chunk()
@@ -1209,26 +1203,26 @@ async def test_the_event_stream_opens_with_a_snapshot(
 async def test_the_event_stream_sends_run_updates_with_sse_ids(
     fast_heartbeat, repository, event_stream
 ):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
+    await repository.create_run(make_run(VoiceRunPhase.DIARIZING))
 
     async with open_event_stream(repository, event_stream) as (_response, next_chunk):
         await next_chunk()  # the snapshot every connection opens with
-        event_id = await event_stream.publish(make_run(VoiceRunPhase.EXPORTING))
+        event_id = await event_stream.publish(make_run(VoiceRunPhase.INGESTED))
         update = await next_chunk()
 
     # the SSE id is the Redis Stream ID, which is what EventSource replays from
     assert f"id: {event_id}\n" in update
     assert EVENT_RUN_UPDATED in update
-    assert '"exporting"' in update
+    assert '"ingested"' in update
 
 
 @pytest.mark.asyncio
 async def test_reconnecting_with_last_event_id_replays_what_was_missed(
     fast_heartbeat, repository, event_stream
 ):
-    await repository.create_run(make_run(VoiceRunPhase.TRAINING))
-    seen_id = await event_stream.publish(make_run(VoiceRunPhase.TRAINING))
-    await event_stream.publish(make_run(VoiceRunPhase.READY))
+    await repository.create_run(make_run(VoiceRunPhase.DIARIZING))
+    seen_id = await event_stream.publish(make_run(VoiceRunPhase.DIARIZING))
+    await event_stream.publish(make_run(VoiceRunPhase.FAILED))
 
     async with open_event_stream(
         repository, event_stream, headers={"Last-Event-ID": seen_id}
@@ -1237,7 +1231,7 @@ async def test_reconnecting_with_last_event_id_replays_what_was_missed(
 
     # a reconnect resumes, so no snapshot, and only what came after seen_id
     assert "STATE_SNAPSHOT" not in replayed
-    assert '"ready"' in replayed
+    assert '"failed"' in replayed
 
 
 # --- what the run table may hold -------------------------------------------
@@ -1259,73 +1253,90 @@ def test_voice_runs_keeps_no_fact_the_factory_owns():
     assert "voice_assignments" not in columns
 
 
-def test_a_speaker_is_a_row_and_its_label_is_not_a_key():
-    """The label is the factory's text. It is stored once, on the speaker, and
-    every association points at the speaker's id instead."""
-    speaker_columns = VoiceRunSpeakerRow.__table__.columns
+def test_a_clip_belongs_to_a_video_and_points_at_a_voice_by_id():
+    """The clip review record. Keyed on the video, because the clips are: a
+    video keeps its clips after every run against it is gone."""
+    columns = VoiceClipRow.__table__.columns
 
-    assert speaker_columns["run_id"].foreign_keys
-    assert speaker_columns["voice_id"].foreign_keys
-    assert speaker_columns["voice_id"].nullable
+    assert [column.name for column in columns if column.primary_key] == [
+        "video_id",
+        "clip_id",
+    ]
+    # no run_id: two runs can claim the same video, and the clips are neither
+    # one's
+    assert "run_id" not in columns
 
-    contribution_columns = VoiceContributionRow.__table__.columns
-    assert contribution_columns["speaker_id"].foreign_keys
-    assert contribution_columns["voice_id"].foreign_keys
-    # not "speaker_label", and not a run id it would have to keep in step
-    assert "speaker_label" not in contribution_columns
-    assert "run_id" not in contribution_columns
+    # the whole assignment, by id, nullable because undecided is a real state
+    assert columns["voice_id"].foreign_keys
+    assert columns["voice_id"].nullable
+    # the decisions that used to live in review.csv
+    assert {"keep", "text", "start_sec", "end_sec"} <= set(columns.keys())
+    # and no voice name beside the id: that copy is what a rename orphans
+    assert "voice_name" not in columns
 
 
-def test_voice_assignments_are_not_carried_by_the_run_row():
-    """The map is a projection now. A row round trip cannot produce it, which
-    is what stops a stale copy from being written back over the rows."""
-    run = make_run(
-        VoiceRunPhase.AWAITING_REVIEW,
-        voice_assignments={"SPEAKER_00": "voice1"},
-    )
+def test_no_voice_assignment_is_carried_by_the_run_row():
+    """A run does not own an assignment. Clips do, one at a time, so there is
+    nothing on the run for a stale copy to live in."""
+    columns = set(VoiceRunRow.__table__.columns.keys())
 
-    restored = _run_from_row(_row_from_run(run))
+    assert "voice_assignments" not in columns
 
-    assert restored.voice_assignments == {}
+    restored = _run_from_row(_row_from_run(make_run(VoiceRunPhase.INGESTED)))
     assert restored.video_id == "vid_abc123"
 
 
 @pytest.mark.asyncio
-async def test_assigning_a_speaker_projects_back_onto_the_run():
-    """What the round trip above no longer carries, the repository rebuilds
-    from the speaker rows."""
-    contributions = InMemoryVoiceContributionRepository()
+async def test_importing_the_same_clip_twice_keeps_the_review_decision():
+    """Ingest can run again over a video someone has already reviewed - a
+    retry, or a second run claiming it. Re-importing must not throw those
+    decisions away."""
+    clips = InMemoryVoiceClipRepository()
+    await clips.import_clips("vid_abc123", [clip("clip_0001", "SPEAKER_00")])
+    await clips.apply_decisions(
+        "vid_abc123", [ClipDecision(clip_id="clip_0001", keep="excluded")]
+    )
 
-    speaker_id = await contributions.assign_speaker("run1", "SPEAKER_00", "voice1")
-    again = await contributions.assign_speaker("run1", "SPEAKER_00", "voice1")
+    imported = await clips.import_clips("vid_abc123", [clip("clip_0001", "SPEAKER_00")])
 
-    # the same label in the same run is the same speaker, every time
-    assert speaker_id == again
+    assert imported == 0
+    stored = await clips.list_clips_for_video("vid_abc123")
+    assert stored[0].keep is False
 
 
 @pytest.mark.asyncio
-async def test_recording_the_same_speaker_twice_leaves_one_row():
-    """An assign call sends the run's whole map, so most pairs in it are
-    already recorded."""
-    contributions = InMemoryVoiceContributionRepository()
-    speaker_id = await contributions.assign_speaker("run1", "SPEAKER_00", "voice1")
-    contribution = VoiceContribution(
-        id="c1",
-        voice_id="voice1",
-        speaker_id=speaker_id,
-        run_id="run1",
-        video_id="vid_abc123",
-        speaker_label="SPEAKER_00",
-        created_at=datetime(2026, 8, 1),
-    )
+async def test_assigning_a_clip_to_a_second_voice_moves_it_rather_than_copying():
+    """One clip trains one voice. Assigning it again is a correction, so the
+    first voice must lose it in the same write."""
+    clips = InMemoryVoiceClipRepository()
+    await clips.import_clips("vid_abc123", [clip("clip_0001", "SPEAKER_00")])
 
-    await contributions.create_contribution(contribution)
-    await contributions.create_contribution(
-        contribution.model_copy(update={"id": "c2"})
-    )
+    await clips.assign_clips("voice1", "vid_abc123", ["clip_0001"])
+    await clips.assign_clips("voice2", "vid_abc123", ["clip_0001"])
 
-    stored = await contributions.list_contributions_for_voice("voice1")
-    assert [row.id for row in stored] == ["c1"]
+    assert await clips.list_clips_for_voice("voice1") == []
+    assert [row.clip_id for row in await clips.list_clips_for_voice("voice2")] == [
+        "clip_0001"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_voices_clips_span_every_video_they_were_assigned_from():
+    """The unified view: what a voice is made of is gathered across videos,
+    which is the same set COMPILING turns into training audio."""
+    clips = InMemoryVoiceClipRepository()
+    await clips.import_clips("vid_b", [clip("clip_0002", "SPEAKER_00")])
+    await clips.import_clips("vid_a", [clip("clip_0001", "SPEAKER_00")])
+    await clips.assign_clips("voice1", "vid_a", ["clip_0001"])
+    await clips.assign_clips("voice1", "vid_b", ["clip_0002"])
+
+    gathered = await clips.list_clips_for_voice("voice1")
+
+    # ordered by video, so two reads list the same assignments the same way
+    assert [(row.video_id, row.clip_id) for row in gathered] == [
+        ("vid_a", "clip_0001"),
+        ("vid_b", "clip_0002"),
+    ]
 
 
 # --- titles come from the factory ------------------------------------------

@@ -21,14 +21,11 @@ function toSnakeCase(value: string): string {
  * Fields whose object values are keyed by data, not by field name. Their keys
  * must survive the converter untouched.
  *
- * voice_assignments is keyed by speaker label. toCamelCase matches _[a-z0-9],
- * so it rewrote SPEAKER_00 to SPEAKER00 on every read - which then matched no
- * clip.speakerLabel, and made an assignment that was stored correctly look
- * like it had never happened.
+ * toCamelCase matches _[a-z0-9], so it rewrites a speaker label like
+ * SPEAKER_00 to SPEAKER00. Any map keyed by one of those has to be listed
+ * here, or a value stored correctly reads back under a key nothing matches.
  */
 const DATA_KEYED_MAPS: ReadonlySet<string> = new Set([
-  "voice_assignments",
-  "voiceAssignments",
   "speaker_map",
   "speakerMap",
 ]);

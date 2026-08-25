@@ -57,7 +57,7 @@ describe("useVoiceDetail", () => {
     global.fetch = jest.fn();
   });
 
-  it("calls GET /voices/{id} and converts contributions to camelCase", async () => {
+  it("calls GET /voices/{id} and converts its clips to camelCase", async () => {
     const fetchMock = global.fetch as jest.Mock;
     fetchMock.mockResolvedValue(
       jsonResponse({
@@ -66,15 +66,18 @@ describe("useVoiceDetail", () => {
         phase: "awaiting_commit",
         checkpoint_path: null,
         voyicer_job_id: null,
-        contributions: [
+        clips: [
           {
-            id: "c1",
-            voice_id: "v1",
-            run_id: "r1",
             video_id: "vid1",
+            clip_id: "clip_0001",
             video_title: "Episode 1",
+            keep: true,
+            text: "Make it so.",
+            start_sec: 1.5,
+            end_sec: 3.0,
+            duration_sec: 1.5,
+            flagged: false,
             speaker_label: "SPEAKER_00",
-            created_at: "2026-08-01T00:00:00",
           },
         ],
         created_at: "2026-08-01T00:00:00",
@@ -90,15 +93,18 @@ describe("useVoiceDetail", () => {
       `${voicesApiBase}/v1`,
       expect.anything(),
     );
-    expect(result.current.data?.contributions).toEqual([
+    expect(result.current.data?.clips).toEqual([
       {
-        id: "c1",
-        voiceId: "v1",
-        runId: "r1",
         videoId: "vid1",
+        clipId: "clip_0001",
         videoTitle: "Episode 1",
+        keep: true,
+        text: "Make it so.",
+        startSec: 1.5,
+        endSec: 3.0,
+        durationSec: 1.5,
+        flagged: false,
         speakerLabel: "SPEAKER_00",
-        createdAt: "2026-08-01T00:00:00",
       },
     ]);
   });

@@ -5,6 +5,7 @@ type Tone =
   | "complete"
   | "failed"
   | "queued"
+  | "review"
   | "running"
   | "neutral";
 
@@ -14,6 +15,7 @@ const TONES: Record<Tone, string> = {
   complete: "bg-success/15 text-success border-success/30",
   failed: "bg-destructive/15 text-destructive border-destructive/30",
   queued: "bg-muted text-muted-foreground border-border",
+  review: "bg-primary/15 text-primary border-primary/30",
   neutral: "bg-muted text-muted-foreground border-border",
 };
 
@@ -22,6 +24,7 @@ const LABELS: Record<string, string> = {
   complete: "Complete",
   failed: "Failed",
   queued: "Queued",
+  review: "Awaiting review",
   running: "Training",
 };
 

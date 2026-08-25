@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, X, Pencil, AudioLines, Pause, Play } from "lucide-react";
-import { VoiceSpeakerCombobox } from "./voice_speaker_combobox";
+import { VoicePicker } from "./voice_picker";
 import { cn } from "@/lib/utils";
 import type { StudioClip } from "./types";
 import { formatDuration } from "@/lib/format";
@@ -14,32 +14,22 @@ import { useUpdateClips } from "./api/use_videos";
  * and could name a different video than the one this row is actually showing,
  * which silently sent edits to the wrong video's clips.
  *
- * The combobox always renders, even when diarization gave the clip no
- * speaker_label - review is a human decision, and a clip the pipeline
- * couldn't attribute is exactly the clip a reviewer most needs to be able to
- * name. Only what a pick DOES depends on the clip's state:
+ * The picker always renders, even when diarization gave the clip no speaker
+ * label - review is a human decision, and a clip the pipeline could not
+ * attribute is exactly the clip a reviewer most needs to be able to name.
  *
- * - No speakerLabel: there is no group to join, so a pick is always a
- *   per-clip pin - it writes assignedVoice straight to review.csv via
- *   updateClips, and touches nothing else.
- * - Has a speakerLabel, no name yet: this is the first assignment for the
- *   whole speaker group. onAssignSpeaker writes the group-wide Postgres map
- *   (voiceId, joined to a voice_contributions row) - every clip pyannote
- *   grouped under this label picks up the name, which is the point:
- *   auto-label a still-undecided group.
- * - Has a speakerLabel and already shows a name: a diarized group is not one
- *   person, so a later pick here is a correction to THIS clip alone - same
- *   per-clip assignedVoice write as the no-speakerLabel case, and the group
- *   map is untouched. A corrected clip's audit trail stays the group's
- *   contribution row, not its own - see voice_run_assignment.py.
+ * A pick always does the same thing: it assigns clips to a voice, through the
+ * one route that does that. Only how many clips it names changes, and the
+ * panel decides that - the whole speaker group while the clip is still
+ * unnamed, this row alone once it shows a voice, because a diarized group is
+ * not always one person.
  */
 export function ClipRow({
   clip,
   ordinal,
   selected,
   onSelect,
-  assignedVoiceName,
-  onAssignSpeaker,
+  onAssignVoice,
   assigning,
   playing,
   onPlayClip,
@@ -52,13 +42,9 @@ export function ClipRow({
   ordinal: number;
   selected: boolean;
   onSelect: () => void;
-  /* resolved from the run's assignments by voice id, never stored on the clip */
-  assignedVoiceName: string | null;
-  /* null when there is no run to assign against, or the clip has no
-     speakerLabel to key a group-wide assignment on. Either way a voice can
-     still be pinned to this one clip - see the combobox's onSelect below,
-     which falls back to a per-clip write whenever this is null. */
-  onAssignSpeaker: ((voiceId: string) => void) | null;
+  /* Assign this clip - and, while it is still unnamed, its whole speaker
+     group - to the picked voice. The panel owns that decision. */
+  onAssignVoice: (voiceId: string) => void;
   assigning: boolean;
   /* Whether THIS row's clip is the one currently sourcing the video's audio.
      The video is the only player now, so only one row can be "playing" at a
@@ -119,24 +105,10 @@ export function ClipRow({
             no speaker
           </span>
         )}
-        <VoiceSpeakerCombobox
-          speakerLabel={clip.speakerLabel ?? "unlabeled"}
-          assignedVoiceName={assignedVoiceName}
-          onSelect={(voiceId, voiceName) => {
-            /* A clip with no speakerLabel has no group to assign - always a
-               per-clip pin. Same for a clip that already carries a name: a
-               diarized group is not one person, so a later pick corrects
-               this clip alone. Only an unnamed clip that DOES belong to a
-               labelled, run-claimed group goes through onAssignSpeaker,
-               which writes the group-wide map - see the file-level comment. */
-            if (!clip.speakerLabel || assignedVoiceName || !onAssignSpeaker) {
-              updateClips.mutate([
-                { clipId: clip.clipId, assignedVoice: voiceName },
-              ]);
-            } else {
-              onAssignSpeaker(voiceId);
-            }
-          }}
+        <VoicePicker
+          label={clip.speakerLabel ?? "this clip"}
+          assignedVoiceName={clip.voiceName}
+          onSelect={onAssignVoice}
         />
         {assigning && (
           <span className="font-mono text-[0.65rem] text-muted-foreground">
@@ -163,20 +135,33 @@ export function ClipRow({
           <span
             className={cn(
               "font-mono text-[0.65rem] uppercase",
-              clip.keep ? "text-success" : "text-muted-foreground",
+              clip.keep === true && "text-success",
+              clip.keep === false && "text-destructive",
+              clip.keep === null && "text-muted-foreground",
             )}
           >
-            {clip.keep ? "kept" : "excluded"}
+            {clip.keep === true
+              ? "kept"
+              : clip.keep === false
+                ? "excluded"
+                : "unreviewed"}
           </span>
           <button
             type="button"
             onClick={() =>
-              updateClips.mutate([{ clipId: clip.clipId, keep: true }])
+              /* A second click on an already-kept clip undoes the decision
+                 instead of doing nothing - the toggle's third state. */
+              updateClips.mutate([
+                {
+                  clipId: clip.clipId,
+                  keep: clip.keep === true ? "none" : "kept",
+                },
+              ])
             }
-            aria-label="Keep clip"
+            aria-label={clip.keep === true ? "Clear keep decision" : "Keep clip"}
             className={cn(
               "flex size-7 items-center justify-center rounded-md border",
-              clip.keep
+              clip.keep === true
                 ? "border-success/40 bg-success/15 text-success"
                 : "border-border text-muted-foreground hover:text-success",
             )}
@@ -186,12 +171,19 @@ export function ClipRow({
           <button
             type="button"
             onClick={() =>
-              updateClips.mutate([{ clipId: clip.clipId, keep: false }])
+              updateClips.mutate([
+                {
+                  clipId: clip.clipId,
+                  keep: clip.keep === false ? "none" : "excluded",
+                },
+              ])
             }
-            aria-label="Exclude clip"
+            aria-label={
+              clip.keep === false ? "Clear exclude decision" : "Exclude clip"
+            }
             className={cn(
               "flex size-7 items-center justify-center rounded-md border",
-              !clip.keep
+              clip.keep === false
                 ? "border-destructive/40 bg-destructive/15 text-destructive"
                 : "border-border text-muted-foreground hover:text-destructive",
             )}

@@ -1,13 +1,12 @@
-"""Tests for Story 3.3: trigger training explicitly, independent of
-ingestion and independent of assignment.
+"""Trigger training explicitly, independent of ingestion and of assignment.
 
 Covers every row of the spec's I/O & Edge-Case Matrix:
-- assign_run never touches voice phase or wakes the reconciler - assigning a
-  speaker is a separate action from starting training (assign and commit
-  were unflattened; see test_voice_assign_commit.py for assign/commit)
+- assigning clips never touches voice phase or wakes the reconciler -
+  assigning is a separate action from starting training
 - POST /voices/{id}/train happy path, unknown voice, already-training
 - claim race: two claims of the same voice, only one wins
-- graph-level: the training node calls gateway.start_job with STAGE_TRAIN
+- graph-level: COMPILING walks compile-dataset/resample/preprocess in order,
+  then the training node calls gateway.start_job with STAGE_TRAIN
 """
 
 from datetime import UTC, datetime
@@ -17,7 +16,7 @@ import pytest
 from pythonapi.core.voice_factory_gateway import STAGE_TRAIN, VoiceFactoryGateway
 from pythonapi.core.voice_training_graph import build_voice_training_graph
 from pythonapi.dependencies import (
-    get_required_voice_contribution_repository,
+    get_required_voice_clip_repository,
     get_required_voice_repository,
     get_required_voice_run_repository,
     get_required_voice_training_reconciler,
@@ -25,10 +24,8 @@ from pythonapi.dependencies import (
 )
 from pythonapi.main import app
 from pythonapi.models.voice import Voice, VoicePhase
-from pythonapi.models.voice_run import VoiceRun, VoiceRunPhase
-from pythonapi.repositories.voice_contributions import (
-    InMemoryVoiceContributionRepository,
-)
+from pythonapi.models.voice_run import ClipSummary, VoiceRun, VoiceRunPhase
+from pythonapi.repositories.voice_clips import InMemoryVoiceClipRepository
 from pythonapi.repositories.voice_repository import InMemoryVoiceRepository
 from pythonapi.repositories.voice_runs import InMemoryVoiceRunRepository
 from pythonapi.workers.voice_training_reconciler import VoiceTrainingReconciler
@@ -95,8 +92,8 @@ def voice_repository() -> InMemoryVoiceRepository:
 
 
 @pytest.fixture
-def contribution_repository() -> InMemoryVoiceContributionRepository:
-    return InMemoryVoiceContributionRepository()
+def clip_repository() -> InMemoryVoiceClipRepository:
+    return InMemoryVoiceClipRepository()
 
 
 @pytest.fixture
@@ -120,13 +117,13 @@ def train_client(
     client,
     run_repository,
     voice_repository,
-    contribution_repository,
+    clip_repository,
     training_reconciler,
 ):
     app.dependency_overrides[get_required_voice_run_repository] = lambda: run_repository
     app.dependency_overrides[get_required_voice_repository] = lambda: voice_repository
-    app.dependency_overrides[get_required_voice_contribution_repository] = lambda: (
-        contribution_repository
+    app.dependency_overrides[get_required_voice_clip_repository] = lambda: (
+        clip_repository
     )
     app.dependency_overrides[get_required_voice_training_reconciler] = lambda: (
         training_reconciler
@@ -137,63 +134,77 @@ def train_client(
     return client
 
 
-# --- assign_run stays a pure mapping: no phase change, no wake ------------
+# --- assigning clips stays a pure mapping: no phase change, no wake -------
+
+
+def make_clip(clip_id: str, speaker_label: str = "SPEAKER_00") -> ClipSummary:
+    return ClipSummary(
+        clip_id=clip_id,
+        keep=True,
+        flagged=False,
+        speaker_label=speaker_label,
+        text="Make it so.",
+        start_sec=1.0,
+        end_sec=2.0,
+        duration_sec=1.0,
+        excluded_reason="",
+    )
 
 
 @pytest.mark.asyncio
-async def test_assign_run_does_not_touch_voice_phase_or_wake_the_reconciler(
-    train_client, run_repository, voice_repository, training_reconciler
+async def test_assigning_clips_does_not_touch_voice_phase_or_wake_reconciler(
+    train_client, clip_repository, voice_repository, training_reconciler
 ):
-    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
     await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
+    await clip_repository.import_clips("vid1", [make_clip("clip_0001")])
 
     response = train_client.post(
-        "/api/voice/runs/run1/assign",
-        json={"assignments": {"SPEAKER_00": "voice1", "SPEAKER_01": None}},
+        "/api/voices/voice1/clips",
+        json={"video_id": "vid1", "clip_ids": ["clip_0001"]},
     )
 
-    assert response.status_code == 201
-    # Assigning a speaker is its own action now (Story 3.2's assign+commit
-    # was unflattened): it must not move the voice out of AWAITING_COMMIT or
-    # wake the reconciler. Training only starts through POST
-    # /voices/{id}/train, tested below.
+    assert response.status_code == 200
+    # Assigning a clip is its own action: it must not move the voice out of
+    # AWAITING_COMMIT or wake the reconciler. Training only starts through
+    # POST /voices/{id}/train, tested below.
     stored = await voice_repository.get_voice("voice1")
     assert stored.phase is VoicePhase.AWAITING_COMMIT
     assert training_reconciler._pending_wakes == set()
 
 
 @pytest.mark.asyncio
-async def test_assign_run_still_works_without_a_voice_factory_configured(
-    client, run_repository, voice_repository, contribution_repository
+async def test_assigning_clips_still_works_without_a_voice_factory_configured(
+    client, clip_repository, voice_repository
 ):
-    """assign_run is DB-only and must keep working even when no voice
-    factory is configured. It has nothing to wake in that case, and the
-    contribution row is the durable record.
+    """Assignment is DB-only and must keep working with no voice factory
+    configured. It has nothing to wake in that case, and the row in
+    voice_clips is the durable record.
     """
-    app.dependency_overrides[get_required_voice_run_repository] = lambda: run_repository
     app.dependency_overrides[get_required_voice_repository] = lambda: voice_repository
-    app.dependency_overrides[get_required_voice_contribution_repository] = lambda: (
-        contribution_repository
+    app.dependency_overrides[get_required_voice_clip_repository] = lambda: (
+        clip_repository
     )
     # deliberately no override for get_voice_training_reconciler: it resolves
     # to app.state.voice_training_reconciler, which is None without
     # VOICE_FACTORY_URL set in the test environment.
-    await run_repository.create_run(make_run(VoiceRunPhase.AWAITING_REVIEW))
     await voice_repository.create_voice(make_voice(id="voice1", name="Janeway"))
+    await clip_repository.import_clips("vid1", [make_clip("clip_0001")])
 
     response = client.post(
-        "/api/voice/runs/run1/assign",
-        json={"assignments": {"SPEAKER_00": "voice1"}},
+        "/api/voices/voice1/clips",
+        json={"video_id": "vid1", "clip_ids": ["clip_0001"]},
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 200
+    assigned = await clip_repository.list_clips_for_voice("voice1")
+    assert [clip.clip_id for clip in assigned] == ["clip_0001"]
 
 
 # --- explicit trigger: POST /voices/{id}/train -----------------------------
 
 
 @pytest.mark.asyncio
-async def test_train_happy_path_sets_training_phase_and_wakes_reconciler(
+async def test_train_happy_path_sets_compiling_phase_and_wakes_reconciler(
     train_client, voice_repository, training_reconciler
 ):
     await voice_repository.create_voice(
@@ -203,9 +214,11 @@ async def test_train_happy_path_sets_training_phase_and_wakes_reconciler(
     response = train_client.post("/api/voices/voice1/train")
 
     assert response.status_code == 202
-    assert response.json() == {"id": "voice1", "phase": "training"}
+    # COMPILING, not TRAINING: the dataset is rebuilt from this voice's
+    # current clip assignments before piper_train reads it
+    assert response.json() == {"id": "voice1", "phase": "compiling"}
     stored = await voice_repository.get_voice("voice1")
-    assert stored.phase is VoicePhase.TRAINING
+    assert stored.phase is VoicePhase.COMPILING
     assert "voice1" in training_reconciler._pending_wakes
 
 
@@ -230,7 +243,7 @@ async def test_train_proceeds_even_when_already_training(
 
     assert response.status_code == 202
     stored = await voice_repository.get_voice("voice1")
-    assert stored.phase is VoicePhase.TRAINING
+    assert stored.phase is VoicePhase.COMPILING
     # the stale job id was cleared, so the next tick starts a fresh job
     assert stored.voyicer_job_id is None
 
@@ -245,7 +258,7 @@ async def test_train_proceeds_even_when_ready_or_failed(train_client, voice_repo
 
     assert response.status_code == 202
     stored = await voice_repository.get_voice("voice1")
-    assert stored.phase is VoicePhase.TRAINING
+    assert stored.phase is VoicePhase.COMPILING
 
 
 # --- claim race -------------------------------------------------------------
@@ -313,6 +326,53 @@ async def test_tick_leaves_resting_voices_alone(voice_repository, training_recon
     changed = await training_reconciler.tick()
 
     assert changed == 0
+
+
+@pytest.mark.asyncio
+async def test_compiling_walks_its_three_stages_before_training(
+    voice_repository, training_reconciler, fake_gateway
+):
+    """A voice's dataset is rebuilt, resampled, and preprocessed before
+    piper_train reads it. Without this the train job runs against whatever
+    an earlier run left in work/<character>/training/, or nothing at all."""
+    await voice_repository.create_voice(
+        make_voice(id="voice1", name="Janeway", phase=VoicePhase.COMPILING)
+    )
+
+    for _ in range(8):
+        stored = await voice_repository.get_voice("voice1")
+        if stored.phase is VoicePhase.TRAINING:
+            break
+        if stored.voyicer_job_id is not None:
+            fake_gateway.job_states[stored.voyicer_job_id] = "succeeded"
+        await training_reconciler.tick()
+
+    assert [job["stage"] for job in fake_gateway.started_jobs] == [
+        "compile-dataset",
+        "resample",
+        "preprocess",
+    ]
+    stored = await voice_repository.get_voice("voice1")
+    assert stored.phase is VoicePhase.TRAINING
+    # reset for the next COMPILING pass, so a retrain starts at the top
+    assert stored.compile_stage_index == 0
+
+
+@pytest.mark.asyncio
+async def test_a_failed_compile_stage_fails_the_voice(
+    voice_repository, training_reconciler, fake_gateway
+):
+    await voice_repository.create_voice(
+        make_voice(id="voice1", name="Janeway", phase=VoicePhase.COMPILING)
+    )
+
+    await training_reconciler.tick()
+    stored = await voice_repository.get_voice("voice1")
+    fake_gateway.job_states[stored.voyicer_job_id] = "failed"
+    await training_reconciler.tick()
+
+    stored = await voice_repository.get_voice("voice1")
+    assert stored.phase is VoicePhase.FAILED
 
 
 # --- graph-level: training node calls gateway.start_job(stage=STAGE_TRAIN) -

@@ -1,4 +1,4 @@
-import type { VoiceRun, VoiceRunPhase } from "./types"
+import type { ClipSummary, VoiceRun, VoiceRunPhase } from "./types"
 
 /** A run's display title.
 
@@ -12,11 +12,39 @@ export function runTitle(run: VoiceRun): string {
 /** Map a run phase to a StatusPill tone. */
 export function toneForPhase(
   phase: VoiceRunPhase,
-): "in-progress" | "complete" | "failed" | "queued" {
+): "in-progress" | "complete" | "failed" {
   if (phase === "failed") return "failed"
-  if (phase === "ready") return "complete"
-  if (phase === "awaiting_review") return "queued"
+  if (phase === "ingested") return "complete"
   return "in-progress"
+}
+
+export type ReviewStatus = "reviewing" | "reviewed"
+
+/** Whether a video still has clips nobody has decided on.
+
+    Review is not a phase a run waits in and it is never stored: a reviewer
+    decides clips whenever they like, and a video is reviewed once none are
+    left undecided. A clip with keep === null has no decision yet. */
+export function reviewStatus(clips: ClipSummary[]): ReviewStatus {
+  return clips.some((clip) => clip.keep === null) ? "reviewing" : "reviewed"
+}
+
+/** How many clips are still undecided. Zero means review is finished. */
+export function undecidedCount(clips: ClipSummary[]): number {
+  return clips.filter((clip) => clip.keep === null).length
+}
+
+/** The label the review pill shows, in place of a phase. */
+export function reviewLabel(clips: ClipSummary[]): string {
+  const remaining = undecidedCount(clips)
+  return remaining === 0 ? "Reviewed" : `Reviewing (${remaining} left)`
+}
+
+/** Map a review status to a StatusPill tone. */
+export function toneForReviewStatus(
+  status: ReviewStatus,
+): "review" | "complete" {
+  return status === "reviewed" ? "complete" : "review"
 }
 
 const YOUTUBE_URL_PATTERN =

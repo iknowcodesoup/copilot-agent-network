@@ -29,14 +29,16 @@ AGENT_BASE_URL = "http://voice.test"
 RUN_ID = "4f21aabbccddeeff00112233445566aa"
 
 
-def test_card_publishes_all_four_skills():
+def test_card_publishes_every_skill():
+    """There is no review skill. Review is not an action a person takes once:
+    they decide clips, and a voice compiles whatever the decisions say when it
+    next trains."""
     card = build_voice_agent_card(f"{AGENT_BASE_URL}/")
 
     assert [skill.id for skill in card.skills] == [
         VoiceSkill.VOICE_SEARCH.value,
         VoiceSkill.VOICE_RUN.value,
         VoiceSkill.VOICE_STATUS.value,
-        VoiceSkill.VOICE_REVIEW.value,
     ]
 
 
@@ -185,7 +187,7 @@ async def test_the_named_skill_runs_with_its_parsed_arguments():
 async def test_a_completed_task_carries_the_full_result_as_metadata():
     agent = _StubVoiceAgent(
         result=VoiceStatusResult(
-            runs=[VoiceRunSummary(id=RUN_ID, phase=VoiceRunPhase.TRAINING.value)]
+            runs=[VoiceRunSummary(id=RUN_ID, phase=VoiceRunPhase.INGESTED.value)]
         )
     )
 

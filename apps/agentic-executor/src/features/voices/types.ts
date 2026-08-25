@@ -13,14 +13,14 @@
  * Phases the pipeline moves a run through. Mirrors VoiceRunPhase in
  * apps/pythonapi/pythonapi/models/voice.py - a union, not a TS enum.
  */
+/* A run ingests one video and stops at "ingested". It trains nothing: a
+   voice is built from clips spread across many videos, so training is a
+   VoicePhase. There is no review phase either - whether a video is fully
+   reviewed is derived from its clips (see reviewStatus in derive.ts). */
 export const VoiceRunPhases = [
   "downloading",
   "diarizing",
-  "awaiting_review",
-  "committing",
-  "training",
-  "exporting",
-  "ready",
+  "ingested",
   "failed",
 ] as const
 
@@ -29,11 +29,7 @@ export type VoiceRunPhase = (typeof VoiceRunPhases)[number]
 export const PhaseLabels: Record<VoiceRunPhase, string> = {
   downloading: "Downloading",
   diarizing: "Splitting by speaker",
-  awaiting_review: "Waiting for review",
-  committing: "Preparing dataset",
-  training: "Training",
-  exporting: "Exporting model",
-  ready: "Ready",
+  ingested: "Ingested",
   failed: "Failed",
 }
 
@@ -76,9 +72,6 @@ export interface VoiceRun {
   phase: VoiceRunPhase
   diarize: boolean
   numSpeakers: number | null
-  /* speaker label -> Voice id, written by POST .../assign. The factory has no
-     Voice concept, so nothing there mirrors this. */
-  voiceAssignments: Record<string, string | null>
   voyicerJobId: string | null
   /* which of DOWNLOADING's ordered ingest steps is in flight */
   ingestStageIndex: number
@@ -113,11 +106,12 @@ export const IngestStageLabels = [
 ] as const
 
 /*
- * COMMITTING's ordered stages, mirroring the ordered_stages tuple in
- * _committing_node_factory.
+ * A voice's COMPILING stages, mirroring COMPILE_STAGES in the API's
+ * core/voice_graph_support.py. This is what turns clip decisions into
+ * training audio, at training start.
  */
-export const CommitStageLabels = [
-  "merging approved clips",
+export const CompileStageLabels = [
+  "gathering assigned clips",
   "resampling",
   "preprocessing",
 ] as const
@@ -126,14 +120,25 @@ export const CommitStageLabels = [
 
 export interface ClipSummary {
   clipId: string
-  keep: boolean
+  /* true/false is a reviewer's decision; null is unreviewed - neither kept
+     nor excluded. Distinct states, not a default: a voice's dataset gathers
+     the clips that reached true and name it, when that voice next trains. */
+  keep: boolean | null
   qualityScore: number | null
   flagged: boolean
+  /* which video the clip was cut from. Set when clips are read across
+     videos - a voice's own list spans several - and null when the caller
+     already named one video, as the review board does. */
+  videoId: string | null
   speakerLabel: string | null
   speakerCoverage: number | null
-  /* who this clip is for, chosen per clip; speakerLabel is what diarization
-     heard and stays as recorded */
-  assignedVoice: string | null
+  /* Which voice this clip trains. speakerLabel is what diarization heard;
+     this is the decision made about it, and it is the only thing a dataset
+     reads. */
+  voiceId: string | null
+  /* the voice's name, resolved from voiceId server-side on every read. Never
+     stored beside the id - a rename would leave the copy behind. */
+  voiceName: string | null
   durationSec: number | null
   startSec: number | null
   endSec: number | null
@@ -143,7 +148,6 @@ export interface ClipSummary {
 
 export interface SpeakerGroup {
   speakerLabel: string | null
-  assignedCharacter: string | null
   clipCount: number
   keptCount: number
   totalDurationSec: number
@@ -185,12 +189,18 @@ export interface JobLog {
 
 // ── Clip decisions & assignment ────────────────────────────────────────────
 
+/* Omitted means "don't touch". "none" clears a clip back to unreviewed -
+   the third state a plain boolean cannot reach. */
+export type KeepDecision = "kept" | "excluded" | "none"
+
+/* One change to one clip. Only the fields given are applied, so keeping a
+   clip and retyping its text are separate calls that do not overwrite each
+   other. Which voice a clip trains is not here - see useAssignClips - so
+   assigning cannot be smuggled in beside a keep. */
 export interface ClipDecision {
   clipId: string
-  keep?: boolean
+  keep?: KeepDecision
   speakerLabel?: string | null
-  /* empty string clears the assignment */
-  assignedVoice?: string | null
   text?: string
   /* a trim from the review UI; both must be given together */
   startSec?: number
@@ -205,6 +215,7 @@ export interface ClipDecision {
  */
 export const voicePhases = [
   "awaiting_commit",
+  "compiling",
   "training",
   "exporting",
   "ready",
@@ -220,8 +231,8 @@ export interface VoiceSummary {
 }
 
 /*
- * GET /voices/{id}'s full shape (Story 3.6): a VoiceSummary plus the
- * contribution audit trail the card's popover and clips modal both read.
+ * GET /voices/{id}'s full shape: a VoiceSummary plus every clip assigned to
+ * it, which is what the card grid counts and the panel lists.
  */
 export interface VoiceDetail {
   id: string
@@ -229,33 +240,35 @@ export interface VoiceDetail {
   phase: VoicePhase
   checkpointPath: string | null
   voyicerJobId: string | null
-  contributions: VoiceContribution[]
+  clips: VoiceClip[]
   createdAt: string
   updatedAt: string
 }
 
-/* One speaker committed into one voice. Only voiceId and speakerId are
-   stored - runId, videoId and speakerLabel are joined in from the speaker's
-   own row, so nothing here is associated by name. */
-export interface VoiceContribution {
-  id: string
-  voiceId: string
-  speakerId: string
-  runId: string
-  videoId: string | null
+/* One clip assigned to one voice, named by the video it came from.
+
+   videoTitle is resolved from videoId at read time and is null when the
+   factory is unset or no longer holds that video - the clip still shows,
+   because it is still assigned and will still train. */
+export interface VoiceClip {
+  videoId: string
+  clipId: string
   videoTitle: string | null
-  /** the voice factory's label for the speaker, for display only */
-  speakerLabel: string
-  createdAt: string
+  keep: boolean | null
+  text: string
+  startSec: number
+  endSec: number
+  durationSec: number
+  flagged: boolean
+  /** what diarization heard, carried for display only */
+  speakerLabel: string | null
 }
 
-/* What one assign call did: the mapping stored and the contribution rows
-   it created in the same request - assign now commits immediately, so
-   there is no separate commit response shape. */
-export interface RunAssignResponse {
-  runId: string
-  voiceAssignments: Record<string, string | null>
-  contributions: VoiceContribution[]
+/* What one assign or unassign call did, and what the voice now holds. */
+export interface VoiceAssignResponse {
+  voiceId: string
+  assignedCount: number
+  clips: VoiceClip[]
 }
 
 // ---------------------------------------------------------------------------

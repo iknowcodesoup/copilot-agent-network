@@ -8,7 +8,6 @@ import {
 } from "@tanstack/react-query";
 import type {
   JobLog,
-  RunAssignResponse,
   TrainingProgress,
   VoiceRun,
   VoiceRunPhase,
@@ -16,13 +15,11 @@ import type {
 import { jsonBody, request, VoiceApiError } from "./voice_client";
 import { voiceQueryKeys } from "./query_keys";
 
-/* Phases where the pipeline is doing something on its own. */
+/* Phases where the pipeline is doing something on its own. A run only ever
+   ingests, so these are the ingest steps and nothing else. */
 const activePhases: ReadonlySet<VoiceRunPhase> = new Set([
   "downloading",
   "diarizing",
-  "committing",
-  "training",
-  "exporting",
 ]);
 
 export function isActive(phase: VoiceRunPhase): boolean {
@@ -127,40 +124,3 @@ export function useRetryRun(runId: string) {
   });
 }
 
-/* Map a run's speaker labels to Voices. Only assignment: it writes the
-   voice_contributions rows and nothing else. It does not commit the run or
-   start training - see useCommitRun and useTrainVoice for those, called
-   separately so relabeling a clip's speaker never has a side effect beyond
-   recording it. */
-export function useAssignRun(runId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (assignments: Record<string, string | null>) =>
-      request<RunAssignResponse>(`/runs/${runId}/assign`, {
-        method: "POST",
-        body: JSON.stringify({ assignments }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.run(runId) });
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.runs });
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.voiceList });
-    },
-  });
-}
-
-/* End review once every speaker the operator cares about is assigned.
-   Separate from useAssignRun on purpose (Story 3.2's flattened assign+commit
-   is now unflattened): assigning a speaker must not finish the run by
-   itself. This is the one call that does, and it does only that - no voice
-   phase change, no training. */
-export function useCommitRun(runId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      request<VoiceRun>(`/runs/${runId}/commit`, { method: "POST" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.run(runId) });
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.runs });
-    },
-  });
-}

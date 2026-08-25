@@ -95,9 +95,7 @@ def test_orchestrator_entry_is_a_real_a2a_agent_marked_as_the_entry_point():
         f"urn:air:{settings.ARD_PUBLISHER_DOMAIN}:agent:orchestrator-agent"
     )
     assert orchestrator.type == A2A_AGENT_CARD_MEDIA_TYPE
-    assert orchestrator.url.endswith(
-        "/agents/orchestrator/.well-known/agent-card.json"
-    )
+    assert orchestrator.url.endswith("/agents/orchestrator/.well-known/agent-card.json")
     assert "assist" in orchestrator.capabilities
     assert orchestrator.metadata == {"role": "orchestrator"}
 

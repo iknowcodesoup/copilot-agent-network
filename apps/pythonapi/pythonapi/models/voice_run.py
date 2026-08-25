@@ -7,6 +7,7 @@ orchestrates it and holds the run state.
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,33 +15,28 @@ from pydantic import BaseModel, Field, field_validator
 class VoiceRunPhase(StrEnum):
     """Where one run has reached.
 
-    The reconciler advances a run through these. AWAITING_REVIEW is the
-    human-in-the-loop pause: the run stops there until an operator approves the
-    clips, for as long as that takes. READY and FAILED are terminal.
+    A run ingests one video and stops. It does not train anything: a voice is
+    built from clips spread across many videos, so training belongs to the
+    Voice (see VoicePhase in models/voice.py), not here.
+
+    INGESTED is terminal and states a fact about ingest, not about review.
+    Review has no phase at all - a video is being reviewed until every clip is
+    kept or excluded, which is derived from the clips themselves and never
+    stored.
     """
 
     DOWNLOADING = "downloading"
     DIARIZING = "diarizing"
-    AWAITING_REVIEW = "awaiting_review"
-    COMMITTING = "committing"
-    TRAINING = "training"
-    EXPORTING = "exporting"
-    READY = "ready"
+    INGESTED = "ingested"
     FAILED = "failed"
-    # A run whose speaker->voice assignment has been turned into
-    # voice_contributions rows. Terminal, like READY/FAILED, but reached
-    # through routes/voice_runs.py's assign_run rather than the reconciler.
-    COMMITTED = "committed"
 
 
-# Phases the reconciler leaves alone. AWAITING_REVIEW waits on a person, and the
-# rest are terminal.
+# Phases the reconciler leaves alone. Both are terminal: a run that reaches
+# INGESTED has nothing left to do, and the reconciler must stop ticking it.
 RESTING_PHASES = frozenset(
     {
-        VoiceRunPhase.AWAITING_REVIEW,
-        VoiceRunPhase.READY,
+        VoiceRunPhase.INGESTED,
         VoiceRunPhase.FAILED,
-        VoiceRunPhase.COMMITTED,
     }
 )
 
@@ -92,20 +88,9 @@ class VoiceRun(BaseModel):
     phase: VoiceRunPhase
     diarize: bool = True
     num_speakers: int | None = None
-    # speaker label -> Voice id. This is DB-only and Voice-ID-scoped, and the
-    # factory has no Voice concept, so nothing there mirrors it. Set by
-    # POST .../assign, which stores this mapping and commits it - contribution
-    # rows and phase change - in the same call.
-    # Speaker label -> Voice id, for the review screen. Derived, not stored:
-    # the rows in voice_contributions are the record, and this is a projection
-    # of them built when a run is read. Writing to it does nothing - see
-    # POST /runs/{id}/assign.
-    voice_assignments: dict[str, str | None] = Field(default_factory=dict)
     voyicer_job_id: str | None = None
     # which of DOWNLOADING's ordered ingest steps is in flight
     ingest_stage_index: int = 0
-    # which of COMMITTING's three ordered stages is in flight
-    commit_stage_index: int = 0
     # last training progress the factory reported, over the webhook
     current_epoch: int | None = None
     current_loss: float | None = None
@@ -139,14 +124,25 @@ class VoiceRunResponse(BaseModel):
 
 class ClipSummary(BaseModel):
     clip_id: str
-    keep: bool
+    # Which video the clip was cut from. Set when clips are read across
+    # videos - a voice's own list spans several - and left None when the
+    # caller already named one video, as the review board does.
+    video_id: str | None = None
+    # None is unreviewed: neither kept nor excluded. Distinct from False,
+    # which is an explicit exclusion - see keep_from_cell in the factory's
+    # core/clip_review.py, the source of this value.
+    keep: bool | None
     quality_score: float | None = None
     flagged: bool = False
     speaker_label: str | None = None
     speaker_coverage: float | None = None
-    # Who this clip is for, chosen per clip by the reviewer. speaker_label is
-    # what diarization heard; this is the decision made about it.
-    assigned_voice: str | None = None
+    # Which voice this clip trains. speaker_label is what diarization heard;
+    # this is the decision made about it, and it is the only thing a dataset
+    # reads. None until a reviewer decides.
+    voice_id: str | None = None
+    # The voice's name, resolved from voice_id when the clip is read. Not
+    # stored beside the id: a rename would leave the copy behind.
+    voice_name: str | None = None
     duration_sec: float | None = None
     start_sec: float | None = None
     end_sec: float | None = None
@@ -155,16 +151,14 @@ class ClipSummary(BaseModel):
 
 
 class VideoClips(BaseModel):
-    """One video's clips and its speaker map, as the factory returns them.
+    """One video's clips exactly as the factory cut them.
 
-    The two arrive in the same payload, so they are read together. The map
-    says which character each speaker label belongs to, and the factory owns
-    it - speaker_map.json beside the clips is the one copy.
+    Read once, when ingest finishes, and imported into voice_clips. After
+    that this service never asks the factory about a clip again - the review
+    record is a table here, not a file there.
     """
 
     video_id: str
-    # speaker label -> character name. None discards that speaker's clips.
-    speaker_map: dict[str, str | None] = Field(default_factory=dict)
     clips: list[ClipSummary] = Field(default_factory=list)
 
 
@@ -173,10 +167,12 @@ class SpeakerGroup(BaseModel):
 
     speaker_label is None for the rejected group: clips no single speaker holds,
     which means cross-talk or music.
+
+    Grouping is all the label is for. It gives a reviewer a whole speaker to
+    assign at once, and nothing downstream joins on it.
     """
 
     speaker_label: str | None
-    assigned_character: str | None = None
     clip_count: int
     kept_count: int
     total_duration_sec: float
@@ -196,20 +192,48 @@ class SpeakerBoard(BaseModel):
     speakers: list[SpeakerGroup] = Field(default_factory=list)
 
 
+# What a reviewer can decide about one clip. "none" puts it back to
+# undecided, which is what a second click on an already-kept clip does.
+ClipKeepDecision = Literal["kept", "excluded", "none"]
+
+KEEP_BY_DECISION: dict[ClipKeepDecision, bool | None] = {
+    "kept": True,
+    "excluded": False,
+    "none": None,
+}
+
+
 class ClipDecision(BaseModel):
-    clip_id: str
-    keep: bool | None = None
-    speaker_label: str | None = None
-    text: str | None = None
+    """One change a reviewer makes to one clip.
 
-
-class SpeakerAssignmentRequest(BaseModel):
-    """Approve the review and start training.
-
-    Maps each speaker label to a character. A label mapped to None is discarded.
+    Every field is optional and only the ones given are applied, so keeping a
+    clip and retyping its text are separate calls that do not overwrite each
+    other. Which voice a clip trains is not here: that is its own route, so
+    assigning cannot be smuggled in beside a keep.
     """
 
-    speaker_map: dict[str, str | None]
+    clip_id: str
+    # Three states need three words. A bool cannot carry them, because None
+    # would have to mean both "undecided" and "unchanged", and clearing a
+    # decision would be indistinguishable from not mentioning it.
+    keep: ClipKeepDecision | None = None
+    speaker_label: str | None = None
+    text: str | None = None
+    # The trim bar's write. Both bounds move together or neither does - a
+    # start past its end is not a clip, and half a trim would store one.
+    start_sec: float | None = None
+    end_sec: float | None = None
+
+
+class ClipDecisionRequest(BaseModel):
+    """A batch of clip changes, applied in one call.
+
+    A batch, not one clip per request, because the review screen edits a
+    speaker's worth of clips at a time and one round trip per row would make
+    a partly-applied review a normal outcome.
+    """
+
+    decisions: list[ClipDecision] = Field(min_length=1)
 
 
 class CheckpointSummary(BaseModel):

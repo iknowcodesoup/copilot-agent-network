@@ -1,15 +1,20 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { VoiceDetail, VoicePhase, VoiceSummary } from "../types";
+import type {
+  VoiceAssignResponse,
+  VoiceDetail,
+  VoicePhase,
+  VoiceSummary,
+} from "../types";
 import { jsonBody, request } from "./voice_client";
 import { voiceQueryKeys } from "./query_keys";
 import { voicesApiBase } from "./endpoints";
 
-/* Search voices by name, for the assign-speaker combobox (Story 3.5). An
-   empty query lists every voice, so a fresh combobox shows something rather
-   than nothing. enabled defaults to true; the combobox passes false while
-   it is closed, so it costs no request until the operator opens it. */
+/* Search voices by name, for the voice picker. An empty query lists every
+   voice, so a fresh picker shows something rather than nothing. enabled
+   defaults to true; the picker passes false while it is closed, so it costs
+   no request until the operator opens it. */
 export function useVoices(query: string, enabled = true) {
   return useQuery({
     queryKey: voiceQueryKeys.voices(query),
@@ -46,13 +51,12 @@ export function useCreateVoice() {
   });
 }
 
-/* Every voice, for the Voices view's card grid (Story 3.6). limit=50 is the
-   route's max, and an empty query matches everything, same contract
-   useVoices already relies on for the assign-speaker combobox.
+/* Every voice, for the Voices view's card grid. limit=50 is the route's max,
+   and an empty query matches everything, the same contract useVoices relies
+   on for the picker.
 
-   Each voice carries its contributions, so a card says what the voice is made
-   of without one detail request per card. Contribution video titles are the
-   detail route's job - they cost a factory call each. */
+   Each voice carries its clips, so a card says what the voice is made of
+   without one detail request per card. */
 export function useVoiceList() {
   return useQuery({
     queryKey: voiceQueryKeys.voiceList,
@@ -61,9 +65,7 @@ export function useVoiceList() {
   });
 }
 
-/* One voice's full detail, including its contribution audit trail - the
-   single fetch voice_card.tsx's popover and view-clips modal both read
-   from. */
+/* One voice's full detail: every clip assigned to it, from every video. */
 export function useVoiceDetail(voiceId: string) {
   return useQuery({
     queryKey: voiceQueryKeys.voiceDetail(voiceId),
@@ -72,8 +74,8 @@ export function useVoiceDetail(voiceId: string) {
   });
 }
 
-/* Start or restart training, whatever the voice's current phase (Story 3.3's
-   train_voice: always accepted). The card refetches both this voice's
+/* Start or restart training, whatever the voice's current phase (always
+   accepted). The card refetches both this voice's
    detail and the list afterward so the phase shows without a page
    reload. */
 export function useTrainVoice() {
@@ -93,6 +95,59 @@ export function useTrainVoice() {
         queryKey: voiceQueryKeys.voiceDetail(id),
       });
       queryClient.invalidateQueries({ queryKey: voiceQueryKeys.voiceList });
+    },
+  });
+}
+
+/* Assign clips of one video to a voice. The one write that joins a clip to a
+   voice, whether the operator picked a whole speaker or corrected a single
+   row - the caller decides which clip ids to send, and nothing else differs.
+
+   The clips themselves are untouched: their keep decision, text and bounds
+   are useUpdateClips's, so culling a group afterwards cannot undo the
+   assignment that put it there.
+
+   The voice is a mutation variable, not a hook argument, because a caller
+   rarely knows it at render time - the picker resolves it when the operator
+   chooses, and the assistant when it resolves a name. */
+export function useAssignClips() {
+  return useClipAssignment((voiceId) => `/${voiceId}/clips`);
+}
+
+/* Take clips off a voice. The clips stay exactly as they are - only the
+   assignment goes - so a clip removed from one voice is ready for another. */
+export function useUnassignClips() {
+  return useClipAssignment((voiceId) => `/${voiceId}/clips/unassign`);
+}
+
+interface ClipAssignment {
+  voiceId: string;
+  videoId: string;
+  clipIds: string[];
+}
+
+/* Assign and unassign differ by their path and nothing else - same body, same
+   response, same caches to drop. */
+function useClipAssignment(pathFor: (voiceId: string) => string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ voiceId, videoId, clipIds }: ClipAssignment) =>
+      request<VoiceAssignResponse>(
+        pathFor(voiceId),
+        { method: "POST", body: jsonBody({ videoId, clipIds }) },
+        voicesApiBase,
+      ),
+    onSuccess: (_result, { voiceId, videoId }) => {
+      /* The board shows each clip's assigned voice, so it has to be re-read
+         after an assignment - the response describes the voice, not the
+         video. */
+      queryClient.invalidateQueries({
+        queryKey: voiceQueryKeys.speakers(videoId),
+      });
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.voiceList });
+      queryClient.invalidateQueries({
+        queryKey: voiceQueryKeys.voiceDetail(voiceId),
+      });
     },
   });
 }

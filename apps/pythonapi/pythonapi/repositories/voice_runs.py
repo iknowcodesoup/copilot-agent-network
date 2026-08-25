@@ -11,14 +11,13 @@ rather than a lock, so an instance that dies never strands a run - no separate
 lock service, and nothing to clean up by hand.
 """
 
-from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Protocol
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from pythonapi.models.orm import VoiceRunRow, VoiceRunSpeakerRow
+from pythonapi.models.orm import VoiceRunRow
 from pythonapi.models.voice_run import RESTING_PHASES, VoiceRun, VoiceRunPhase
 from pythonapi.repositories.base import lease_is_free, resting_phase_values, utc_now
 
@@ -196,8 +195,7 @@ class PostgresVoiceRunRepository:
             row = await session.get(VoiceRunRow, run_id)
             if row is None:
                 return None
-            runs = await _runs_from_rows(session, [row])
-            return runs[0]
+            return _run_from_row(row)
 
     async def list_runs(self, limit: int = 50, offset: int = 0) -> list[VoiceRun]:
         async with AsyncSession(self._engine) as session:
@@ -207,7 +205,7 @@ class PostgresVoiceRunRepository:
                 .limit(limit)
                 .offset(offset)
             )
-            return await _runs_from_rows(session, list(result.scalars()))
+            return [_run_from_row(row) for row in result.scalars()]
 
     async def list_active_runs(self) -> list[VoiceRun]:
         resting = [phase.value for phase in RESTING_PHASES]
@@ -217,7 +215,7 @@ class PostgresVoiceRunRepository:
                 .where(VoiceRunRow.phase.not_in(resting))
                 .order_by(VoiceRunRow.created_at)
             )
-            return await _runs_from_rows(session, list(result.scalars()))
+            return [_run_from_row(row) for row in result.scalars()]
 
     async def find_run_by_job_id(self, job_id: str) -> VoiceRun | None:
         async with AsyncSession(self._engine) as session:
@@ -227,15 +225,14 @@ class PostgresVoiceRunRepository:
             row = result.scalar_one_or_none()
             if row is None:
                 return None
-            runs = await _runs_from_rows(session, [row])
-            return runs[0]
+            return _run_from_row(row)
 
     async def list_runs_for_video(self, video_id: str) -> list[VoiceRun]:
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 select(VoiceRunRow).where(VoiceRunRow.video_id == video_id)
             )
-            return await _runs_from_rows(session, list(result.scalars()))
+            return [_run_from_row(row) for row in result.scalars()]
 
     async def claim_runs(
         self, owner: str, lease_seconds: float, limit: int = 50
@@ -297,8 +294,7 @@ class PostgresVoiceRunRepository:
             row.updated_at = utc_now()
             await session.commit()
             await session.refresh(row)
-            runs = await _runs_from_rows(session, [row])
-            return runs[0]
+            return _run_from_row(row)
 
     async def _claim_where(
         self, run_filter, owner: str, lease_seconds: float
@@ -321,7 +317,7 @@ class PostgresVoiceRunRepository:
                 .values(leased_until=expiry, lease_owner=owner)
                 .returning(VoiceRunRow)
             )
-            runs = await _runs_from_rows(session, list(result.scalars()))
+            runs = [_run_from_row(row) for row in result.scalars()]
             await session.commit()
             return runs
 
@@ -335,12 +331,8 @@ class PostgresVoiceRunRepository:
             row.phase = run.phase.value
             row.diarize = run.diarize
             row.num_speakers = run.num_speakers
-            # voice_assignments is deliberately not written. It has no column:
-            # POST /runs/{id}/assign writes voice_contributions, and the map is
-            # projected back from those rows on read.
             row.voyicer_job_id = run.voyicer_job_id
             row.ingest_stage_index = run.ingest_stage_index
-            row.commit_stage_index = run.commit_stage_index
             row.current_epoch = run.current_epoch
             row.current_loss = run.current_loss
             row.error = run.error
@@ -374,7 +366,6 @@ def _row_from_run(run: VoiceRun) -> VoiceRunRow:
         num_speakers=run.num_speakers,
         voyicer_job_id=run.voyicer_job_id,
         ingest_stage_index=run.ingest_stage_index,
-        commit_stage_index=run.commit_stage_index,
         current_epoch=run.current_epoch,
         current_loss=run.current_loss,
         error=run.error,
@@ -388,49 +379,7 @@ def _row_from_run(run: VoiceRun) -> VoiceRunRow:
     )
 
 
-async def _assignments_for(
-    session: AsyncSession, run_ids: Sequence[str]
-) -> dict[str, dict[str, str | None]]:
-    """Speaker label -> voice id, per run, projected from the speaker rows.
-
-    voice_runs has no column for this. Each speaker holds its own voice id, so
-    the map is rebuilt on every read and cannot disagree with them. Reading it
-    from voice_contributions instead would be ambiguous - a reassigned speaker
-    has more than one row there, on purpose.
-
-    One query covers however many runs the caller is returning.
-    """
-    assignments: dict[str, dict[str, str | None]] = {run_id: {} for run_id in run_ids}
-    # IN () is not valid SQL, and an empty ask has an empty answer anyway
-    if not assignments:
-        return assignments
-    result = await session.execute(
-        select(
-            VoiceRunSpeakerRow.run_id,
-            VoiceRunSpeakerRow.label,
-            VoiceRunSpeakerRow.voice_id,
-        ).where(
-            VoiceRunSpeakerRow.run_id.in_(assignments),
-            VoiceRunSpeakerRow.voice_id.is_not(None),
-        )
-    )
-    for run_id, label, voice_id in result.all():
-        assignments[run_id][label] = voice_id
-    return assignments
-
-
-async def _runs_from_rows(
-    session: AsyncSession, rows: Sequence[VoiceRunRow]
-) -> list[VoiceRun]:
-    """Every read path goes through here, so no caller can forget the
-    projection and hand back a run whose assignments look empty."""
-    assignments = await _assignments_for(session, [row.id for row in rows])
-    return [_run_from_row(row, assignments.get(row.id, {})) for row in rows]
-
-
-def _run_from_row(
-    row: VoiceRunRow, voice_assignments: dict[str, str | None] | None = None
-) -> VoiceRun:
+def _run_from_row(row: VoiceRunRow) -> VoiceRun:
     return VoiceRun(
         id=row.id,
         primary_character=row.primary_character,
@@ -439,10 +388,8 @@ def _run_from_row(
         phase=VoiceRunPhase(row.phase),
         diarize=row.diarize,
         num_speakers=row.num_speakers,
-        voice_assignments=voice_assignments or {},
         voyicer_job_id=row.voyicer_job_id,
         ingest_stage_index=row.ingest_stage_index,
-        commit_stage_index=row.commit_stage_index,
         current_epoch=row.current_epoch,
         current_loss=row.current_loss,
         error=row.error,

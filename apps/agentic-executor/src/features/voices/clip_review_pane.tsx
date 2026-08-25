@@ -4,12 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { useSpeakerBoard, useRenameVideo } from "./api/use_videos";
 import { RunActions } from "./run_actions";
-import { StatusPill } from "./status_pill";
-import { WatchLink } from "./watch_link";
 import { YoutubeEmbedPlayer, type VideoCue } from "./youtube_embed_player";
 import { ClipTrimBar } from "./clip_trim_bar";
 import { ClipListPanel } from "./clip_list_panel";
-import { toneForPhase } from "./derive";
 import type { VideoSummary, VoiceRun } from "./types";
 
 /* Click the title to correct it. The factory owns the name - it lives in
@@ -132,17 +129,6 @@ export function ClipReviewPane({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <VideoTitle video={video} />
-        {run && (
-          <StatusPill
-            tone={toneForPhase(run.phase)}
-            pulse={!["failed", "ready", "awaiting_review"].includes(run.phase)}
-            label={run.phase.replaceAll("_", " ")}
-          />
-        )}
-      </div>
-
       {run && (
         <div className="flex flex-col gap-2">
           {/* The failure text is the only record of why a run stopped, so

@@ -27,7 +27,6 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from pythonapi.models.voice_run import (
-    SpeakerAssignmentRequest,
     VideoResult,
     VoiceRun,
     VoiceRunRequest,
@@ -36,12 +35,16 @@ from pythonapi.models.voice_run import (
 
 
 class VoiceSkill(StrEnum):
-    """The four skills agent-contracts.md assigns the Voice Agent."""
+    """The skills agent-contracts.md assigns the Voice Agent.
+
+    There is no review skill. Review is not an action a person takes once:
+    they decide clips, for as long as they like, and a voice compiles whatever
+    the decisions say when it next trains.
+    """
 
     VOICE_SEARCH = "voice_search"
     VOICE_RUN = "voice_run"
     VOICE_STATUS = "voice_status"
-    VOICE_REVIEW = "voice_review"
 
 
 class VoiceSearchSubject(StrEnum):
@@ -105,20 +108,8 @@ class VoiceStatusResult(BaseModel):
     runs: list[VoiceRunSummary] = []
 
 
-class VoiceReviewRequest(BaseModel):
-    """Approve a run's clip review and start training.
-
-    run_id plus the existing approve-run payload - see
-    routes/voice_runs.py's approve_run, which this skill wraps rather than
-    duplicates.
-    """
-
-    run_id: str
-    assignment: SpeakerAssignmentRequest
-
-
 class VoiceAgentInterface(Protocol):
-    """What the Voice Agent's four skills must do, independent of transport.
+    """What the Voice Agent's skills must do, independent of transport.
 
     The real implementation (Phase 3) wraps this in A2A task handling and
     calls the existing VoiceFactoryGateway/VoiceRunRepository - the same
@@ -131,5 +122,3 @@ class VoiceAgentInterface(Protocol):
     async def voice_run(self, request: VoiceRunRequest) -> VoiceRunResponse: ...
 
     async def voice_status(self, request: VoiceStatusRequest) -> VoiceStatusResult: ...
-
-    async def voice_review(self, request: VoiceReviewRequest) -> VoiceRun: ...

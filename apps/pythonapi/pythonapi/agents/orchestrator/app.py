@@ -27,7 +27,9 @@ def build_orchestrator_app(*, dependencies_provider) -> FastAPI:
     """
     agent = DelegatingOrchestratorAgent(dependencies_provider)
     return build_a2a_service(
-        agent_card=build_orchestrator_agent_card(settings.orchestrator_agent_public_url),
+        agent_card=build_orchestrator_agent_card(
+            settings.orchestrator_agent_public_url
+        ),
         executor=OrchestratorAgentExecutor(agent),
     )
 

@@ -66,9 +66,9 @@ from pythonapi.repositories.pii_vault import (
 )
 from pythonapi.repositories.postgres import PostgresDocumentRepository
 from pythonapi.repositories.qdrant import QdrantEmbeddingIndex
-from pythonapi.repositories.voice_contributions import (
-    InMemoryVoiceContributionRepository,
-    PostgresVoiceContributionRepository,
+from pythonapi.repositories.voice_clips import (
+    InMemoryVoiceClipRepository,
+    PostgresVoiceClipRepository,
 )
 from pythonapi.repositories.voice_repository import (
     InMemoryVoiceRepository,
@@ -361,13 +361,14 @@ async def lifespan(app: FastAPI):
             if app.state.postgres_engine is not None
             else InMemoryVoiceRepository()
         )
-        # Wired unconditionally on postgres_engine too - the audit trail must
-        # record a contribution regardless of whether the factory is
-        # configured.
-        app.state.voice_contribution_repository = (
-            PostgresVoiceContributionRepository(app.state.postgres_engine)
+        # Wired unconditionally on postgres_engine too. This is the review
+        # record: a reviewer must be able to keep, trim and assign clips
+        # whether or not a factory is reachable, and the factory reads what
+        # they decided only when a voice compiles.
+        app.state.voice_clip_repository = (
+            PostgresVoiceClipRepository(app.state.postgres_engine)
             if app.state.postgres_engine is not None
-            else InMemoryVoiceContributionRepository()
+            else InMemoryVoiceClipRepository()
         )
         # Fan-out for voice run changes. Redis is optional here as
         # everywhere: with it, a change made by any API instance reaches
@@ -387,7 +388,8 @@ async def lifespan(app: FastAPI):
                     VoiceRunReconciler(
                         repository=app.state.voice_run_repository,
                         graph=build_voice_pipeline_graph(
-                            app.state.voice_factory_gateway
+                            app.state.voice_factory_gateway,
+                            app.state.voice_clip_repository,
                         ),
                         interval_seconds=settings.VOICE_RECONCILE_INTERVAL_SECONDS,
                         event_stream=app.state.voice_event_stream,

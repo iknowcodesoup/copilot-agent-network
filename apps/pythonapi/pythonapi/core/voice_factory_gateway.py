@@ -34,10 +34,6 @@ from pythonapi.models.voice_run import (
     VideoResult,
 )
 
-# One video's speaker-map entries: speaker label -> character. A character of
-# None discards that speaker's clips, same meaning as set_speaker_map.
-SpeakerAssignments = dict[str, str | None]
-
 logger = logging.getLogger(__name__)
 
 # Below this the factory answered but the request was wrong; at or above it the
@@ -55,7 +51,10 @@ STAGE_YOUTUBE_TRANSCRIBE = "youtube-transcribe"
 STAGE_YOUTUBE_CHUNK = "youtube-chunk"
 STAGE_YOUTUBE_DIARIZE = "youtube-diarize"
 STAGE_YOUTUBE_REVIEW = "youtube-review"
-STAGE_YOUTUBE_COMMIT = "youtube-commit"
+# Rebuilds one voice's dataset from every kept clip assigned to it, across
+# every video. Replaces the folder rather than adding to it, so a clip the
+# reviewer un-kept or moved is gone from the next training run's audio.
+STAGE_COMPILE_DATASET = "compile-dataset"
 STAGE_RESAMPLE = "resample"
 STAGE_PREPROCESS = "preprocess"
 STAGE_TRAIN = "train"
@@ -76,8 +75,8 @@ class VoiceFactoryError(RuntimeError):
     status_code is the control API's own HTTP status, when the failure came
     from a response rather than a transport error. Most callers only care
     that the call failed and turn any VoiceFactoryError into a 502 - but a
-    caller that must preserve one specific status, such as commit_clips's 409
-    on a speaker-map conflict, reads it off here instead of parsing message.
+    caller that must preserve one specific status reads it off here instead
+    of parsing message.
     """
 
     def __init__(self, message: str, status_code: int | None = None) -> None:
@@ -205,51 +204,18 @@ class VoiceFactoryGateway:
         return list(payload["speakers"])
 
     async def get_clips(self, video_id: str) -> VideoClips:
-        """One video's clips and the speaker map that names their characters.
+        """What ingest cut out of one video.
 
-        The factory sends both in one payload. Reading the map from here is
-        what lets the speaker board show assigned_character without a second
-        call, and without this service keeping a copy of the map.
+        Read once, when a run finishes diarizing, and imported into
+        voice_clips. There is no matching write: the review record is a table
+        in this service, so a second path that edited the factory's copy
+        would be a writer to a file nothing reads any more.
         """
         payload = await self._request("GET", f"/videos/{video_id}/clips")
         return VideoClips(
             video_id=payload.get("video_id", video_id),
-            speaker_map=payload.get("speaker_map") or {},
             clips=[ClipSummary(**clip) for clip in payload["clips"]],
         )
-
-    async def update_clips(self, video_id: str, decisions: list[dict]) -> int:
-        payload = await self._request(
-            "PATCH",
-            f"/videos/{video_id}/clips",
-            json={"decisions": decisions},
-        )
-        return payload["updated"]
-
-    async def set_speaker_map(
-        self, video_id: str, speaker_map: dict[str, str | None]
-    ) -> None:
-        await self._request(
-            "PUT",
-            f"/videos/{video_id}/speaker-map",
-            json={"speaker_map": speaker_map},
-        )
-
-    async def commit_clips(
-        self, assignments: dict[str, SpeakerAssignments]
-    ) -> dict[str, int]:
-        """Write every named video's speaker-map entries, then run one commit
-        pass across the whole shared work/youtube/ directory (FR14).
-
-        assignments maps video_id to that video's {speaker_label: character}
-        entries, merged with any earlier claim the same way set_speaker_map's
-        PUT already merges one video at a time. Returns how many clips each
-        named character's dataset gained.
-        """
-        payload = await self._request(
-            "POST", "/videos/commit", json={"assignments": assignments}
-        )
-        return payload.get("committed", {})
 
     async def get_training_progress(self, character: str) -> TrainingProgress:
         # training has no video_id concept, so this stays character-scoped

@@ -5,7 +5,7 @@ live in Qdrant only (see repositories/qdrant.py).
 
 from datetime import datetime
 
-from sqlalchemy import ARRAY, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import ARRAY, ForeignKey, Index, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -72,13 +72,13 @@ class VoiceRunRow(Base):
 
     The `phase` column is the state machine itself, not a status label:
     VoiceRunReconciler reads it to decide what to do next, so a run survives a
-    restart mid-pipeline. Audio, clips, and review decisions all stay on the
-    voice factory host - only the run state lives here.
+    restart mid-pipeline. A run tracks one video through ingest and stops. The
+    clips ingest produces, and every review decision made about them, belong
+    to the video and live on voice_clips below.
 
-    Every column below is something that would be lost if the factory's work/
-    directory were deleted. Anything the factory can recompute from work/ -
-    the video's title, its clip counts, its speaker map - is read from the
-    factory instead, so no fact here has two writers.
+    Audio stays on the voice factory host. So does the video's title, which
+    the factory measures from the source and this service reads rather than
+    copies, so no fact here has two writers.
     """
 
     __tablename__ = "voice_runs"
@@ -98,19 +98,14 @@ class VoiceRunRow(Base):
     phase: Mapped[str]
     diarize: Mapped[bool] = mapped_column(default=True)
     num_speakers: Mapped[int | None]
-    # No voice_assignments column. It was a JSONB map of speaker label to voice
-    # id, which is a repeating group in one column and a second copy of what
-    # voice_contributions already records. VoiceRun.voice_assignments is still
-    # on the wire, projected from the rows below at read time.
+    # No voice assignment column. A run does not own one: a clip is assigned
+    # to a voice one clip at a time, and that lives on voice_clips below.
     # the control API job backing the current phase, if one is running
     voyicer_job_id: Mapped[str | None]
     # DOWNLOADING runs the ingest steps in order (download, transcribe, chunk,
     # diarize, review). This is which one is in flight, and it is what makes a
     # retry resume on the failed step instead of on the download.
     ingest_stage_index: Mapped[int] = mapped_column(default=0)
-    # COMMITTING runs three stages in order (commit, resample, preprocess).
-    # This is which one is in flight.
-    commit_stage_index: Mapped[int] = mapped_column(default=0)
     # last training progress the factory reported over its webhook
     current_epoch: Mapped[int | None]
     current_loss: Mapped[float | None]
@@ -152,6 +147,9 @@ class VoiceRow(Base):
     checkpoint_path: Mapped[str | None]
     # the control API job backing the current phase, if one is running
     voyicer_job_id: Mapped[str | None]
+    # COMPILING runs three stages in order (compile-dataset, resample,
+    # preprocess). This is which one is in flight.
+    compile_stage_index: Mapped[int] = mapped_column(default=0)
     # Mutual exclusion for multiple API instances, same pattern as
     # VoiceRunRow above: an instance claims a voice by setting these in one
     # atomic UPDATE, and the lease expires on its own.
@@ -161,63 +159,62 @@ class VoiceRow(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
-class VoiceRunSpeakerRow(Base):
-    """One speaker diarization separated out of one run's video.
+class VoiceClipRow(Base):
+    """One clip cut out of one video, and the review decisions made about it.
 
-    The reason this table exists: `label` is the voice factory's identifier
-    for the speaker (SPEAKER_00), and it is text. Every association used to
-    key on that text directly. Here it is stored once, in one row per speaker
-    per run, and everything else joins on `id`.
+    This table is the clip review record. It used to be review.csv on the
+    voice factory host, which meant the two things a dataset is built from -
+    which clips a reviewer kept, and which voice each one is for - lived in a
+    file no query could reach and no transaction protected. They live here
+    now. The factory still owns the audio: `full.wav` beside the clips is
+    what a slice is cut from, and nothing in this table is a copy of it.
 
-    A run owns its speakers, so the label only has to be unique inside the
-    run - two different videos both start at SPEAKER_00.
+    A clip belongs to a video, not to a run. Two runs can claim the same
+    video, and a video keeps its clips after every run against it is gone, so
+    the key is (video_id, clip_id) and there is no run_id column.
+
+    `voice_id` is the whole assignment. One clip trains one voice, so it is a
+    plain nullable column rather than a join table - null means nobody has
+    decided yet. A voice's dataset is every row where voice_id is its id and
+    keep is true, which is one query rather than a directory scan.
     """
 
-    __tablename__ = "voice_run_speakers"
+    __tablename__ = "voice_clips"
     __table_args__ = (
-        Index("idx_voice_run_speakers_run_id", "run_id"),
-        UniqueConstraint("run_id", "label", name="uq_voice_run_speakers_key"),
+        Index("idx_voice_clips_video_id", "video_id"),
+        # the dataset query: every clip assigned to one voice, across videos
+        Index("idx_voice_clips_voice_id", "voice_id"),
     )
 
-    id: Mapped[str] = mapped_column(primary_key=True)
-    run_id: Mapped[str] = mapped_column(ForeignKey("voice_runs.id", ondelete="CASCADE"))
-    # the factory's external key for this speaker. Stored, never referenced.
-    label: Mapped[str]
-    # Which voice this speaker currently belongs to, or None for unassigned.
-    # One speaker has one voice, so it is a plain column here rather than a
-    # row somewhere else. voice_contributions keeps the history of what this
-    # was set to and when; this is only what it is now.
+    video_id: Mapped[str] = mapped_column(primary_key=True)
+    # the factory's id for the clip, unique inside its video
+    clip_id: Mapped[str] = mapped_column(primary_key=True)
+    # Which voice this clip trains, or None for undecided. SET NULL rather
+    # than CASCADE: deleting a voice must not delete the clips, which belong
+    # to the video and outlive any voice built from them.
     voice_id: Mapped[str | None] = mapped_column(
         ForeignKey("voices.id", ondelete="SET NULL"), default=None
     )
+    # True kept, False excluded, None undecided. Three states, not a default:
+    # "reviewed" means no clip is still None, so the difference is what the
+    # review pill counts.
+    keep: Mapped[bool | None] = mapped_column(default=None)
+    text: Mapped[str] = mapped_column(default="")
+    # Bounds into the video's full.wav, in seconds. The trim bar writes them,
+    # and a slice is cut from them on demand - which is why a trim needs no
+    # re-cut of any file.
+    start_sec: Mapped[float] = mapped_column(default=0.0)
+    end_sec: Mapped[float] = mapped_column(default=0.0)
+    # Derived from the bounds and stored anyway, because the factory measured
+    # it at ingest and a row imported from an old review.csv may carry a value
+    # its bounds no longer explain. Recomputed on every trim.
+    duration_sec: Mapped[float] = mapped_column(default=0.0)
+    quality_score: Mapped[float | None] = mapped_column(default=None)
+    flagged: Mapped[bool] = mapped_column(default=False)
+    # What diarization heard, kept as recorded. It groups the review screen
+    # and nothing joins on it - the assignment above is what a dataset reads.
+    speaker_label: Mapped[str | None] = mapped_column(default=None)
+    speaker_coverage: Mapped[float | None] = mapped_column(default=None)
+    excluded_reason: Mapped[str] = mapped_column(default="")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
-class VoiceContributionRow(Base):
-    """One speaker committed into one voice, once.
-
-    Append-only (Story 3.2): no update method exists on the repository, only
-    create_contribution and read queries. This is the audit trail FR19 asks
-    for - which video contributed which speaker to which voice, and when.
-    Where a speaker points *now* is voice_run_speakers.voice_id; this is the
-    history of how it got there, so reassigning a speaker adds a row rather
-    than rewriting one.
-
-    There is no run_id here. The speaker already belongs to a run, so storing
-    it again would be a transitive dependency that two writers could
-    disagree on. Readers join through voice_run_speakers for it.
-    """
-
-    __tablename__ = "voice_contributions"
-    __table_args__ = (
-        Index("idx_voice_contributions_voice_id", "voice_id"),
-        Index("idx_voice_contributions_speaker_id", "speaker_id"),
-        UniqueConstraint("voice_id", "speaker_id", name="uq_voice_contributions_key"),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    voice_id: Mapped[str] = mapped_column(ForeignKey("voices.id", ondelete="CASCADE"))
-    speaker_id: Mapped[str] = mapped_column(
-        ForeignKey("voice_run_speakers.id", ondelete="CASCADE")
-    )
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())

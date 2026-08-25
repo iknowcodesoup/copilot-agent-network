@@ -1,19 +1,23 @@
 """LangGraph that advances one voice run by one phase.
 
+A run ingests one video and stops at INGESTED. It trains nothing: a voice is
+built from clips spread across many videos, so training belongs to
+voice_training_graph.py, which advances a Voice.
+
 The graph is deliberately stateless. Every tick loads a run from Postgres, runs
 exactly one node, and writes the resulting phase back. The `voice_runs.phase`
 column is the durable state, not a LangGraph checkpointer, which is what lets a
-run sit in AWAITING_REVIEW for days and survive a restart or redeploy.
+run rest at INGESTED for days and survive a restart or redeploy.
 
 Each node answers one question: has the control API job for this phase finished,
 and if so what comes next? Nodes never block on a job. They start it, record the
 job id, and return.
 
-A node never fails a run for an unreachable factory. Training runs for days and
-the GPU host can reboot inside that, so a transient error comes back as
-`transient_error` and the phase stays put. The reconciler counts those and only
-gives up after VOICE_MAX_CONSECUTIVE_ERRORS in a row. A permanent error - a job
-that really failed, a contract the factory rejected - still fails the run here.
+A node never fails a run for an unreachable factory. The GPU host can reboot
+under an ingest job, so a transient error comes back as `transient_error` and
+the phase stays put. The reconciler counts those and only gives up after
+VOICE_MAX_CONSECUTIVE_ERRORS in a row. A permanent error - a job that really
+failed, a contract the factory rejected - still fails the run here.
 """
 
 import logging
@@ -24,10 +28,7 @@ from langgraph.graph import END, StateGraph
 from pythonapi.core.voice_factory_gateway import (
     JOB_STATE_RUNNING,
     JOB_STATE_SUCCEEDED,
-    STAGE_PREPROCESS,
-    STAGE_RESAMPLE,
     STAGE_YOUTUBE_CHUNK,
-    STAGE_YOUTUBE_COMMIT,
     STAGE_YOUTUBE_DIARIZE,
     STAGE_YOUTUBE_DOWNLOAD,
     STAGE_YOUTUBE_REVIEW,
@@ -39,12 +40,11 @@ from pythonapi.core.voice_factory_gateway import (
 from pythonapi.core.voice_graph_support import (
     advance,
     defer,
-    exporting_node_factory,
     hold,
     route_by_phase,
-    training_node_factory,
 )
 from pythonapi.models.voice_run import VoiceRun, VoiceRunPhase
+from pythonapi.repositories.voice_clips import VoiceClipRepository
 
 logger = logging.getLogger(__name__)
 
@@ -60,32 +60,21 @@ class VoiceRunState(TypedDict, total=False):
     transient_error: str | None
 
 
-def build_voice_pipeline_graph(gateway: VoiceFactoryGateway):
-    """Compile the graph. Called once, in main.py's lifespan."""
+def build_voice_pipeline_graph(
+    gateway: VoiceFactoryGateway, clip_repository: VoiceClipRepository
+):
+    """Compile the graph. Called once, in main.py's lifespan.
+
+    The clip repository is a node dependency, not a state field: only
+    DIARIZING writes to it, and passing it through the state would make
+    every tick carry a handle it has no use for.
+    """
     builder = StateGraph(VoiceRunState)
 
     builder.add_node(VoiceRunPhase.DOWNLOADING.value, _ingest_node_factory(gateway))
-    builder.add_node(VoiceRunPhase.DIARIZING.value, _diarizing_node_factory(gateway))
-    builder.add_node(VoiceRunPhase.COMMITTING.value, _committing_node_factory(gateway))
     builder.add_node(
-        VoiceRunPhase.TRAINING.value,
-        training_node_factory(
-            gateway,
-            "run",
-            lambda run: run.primary_character,
-            _fail,
-            VoiceRunPhase.EXPORTING,
-        ),
-    )
-    builder.add_node(
-        VoiceRunPhase.EXPORTING.value,
-        exporting_node_factory(
-            gateway,
-            "run",
-            lambda run: run.primary_character,
-            _fail,
-            VoiceRunPhase.READY,
-        ),
+        VoiceRunPhase.DIARIZING.value,
+        _diarizing_node_factory(gateway, clip_repository),
     )
 
     builder.set_conditional_entry_point(
@@ -93,27 +82,18 @@ def build_voice_pipeline_graph(gateway: VoiceFactoryGateway):
         {
             VoiceRunPhase.DOWNLOADING.value: VoiceRunPhase.DOWNLOADING.value,
             VoiceRunPhase.DIARIZING.value: VoiceRunPhase.DIARIZING.value,
-            VoiceRunPhase.COMMITTING.value: VoiceRunPhase.COMMITTING.value,
-            VoiceRunPhase.TRAINING.value: VoiceRunPhase.TRAINING.value,
-            VoiceRunPhase.EXPORTING.value: VoiceRunPhase.EXPORTING.value,
             END: END,
         },
     )
     # one node per tick: the reconciler calls the graph again on its next pass
-    for phase in (
-        VoiceRunPhase.DOWNLOADING,
-        VoiceRunPhase.DIARIZING,
-        VoiceRunPhase.COMMITTING,
-        VoiceRunPhase.TRAINING,
-        VoiceRunPhase.EXPORTING,
-    ):
+    for phase in (VoiceRunPhase.DOWNLOADING, VoiceRunPhase.DIARIZING):
         builder.add_edge(phase.value, END)
 
     return builder.compile()
 
 
 def _route_by_phase(state: VoiceRunState) -> str:
-    # AWAITING_REVIEW waits on a person; READY and FAILED are terminal
+    # INGESTED and FAILED are terminal, so a run in either is left alone
     return route_by_phase(state, "run", _NODE_PHASES, END)
 
 
@@ -121,9 +101,6 @@ _NODE_PHASES = frozenset(
     {
         VoiceRunPhase.DOWNLOADING,
         VoiceRunPhase.DIARIZING,
-        VoiceRunPhase.COMMITTING,
-        VoiceRunPhase.TRAINING,
-        VoiceRunPhase.EXPORTING,
     }
 )
 
@@ -228,10 +205,15 @@ def _ingest_node_factory(gateway: VoiceFactoryGateway):
     return node
 
 
-def _diarizing_node_factory(gateway: VoiceFactoryGateway):
+def _diarizing_node_factory(
+    gateway: VoiceFactoryGateway, clip_repository: VoiceClipRepository
+):
     """DIARIZING: the ingest job already finished, so collect the clips.
 
-    Reads back what ingest produced and parks the run for human review.
+    Reads back what ingest produced, imports it, and then the run is done.
+    Review is not a phase it waits in: a reviewer decides clips whenever they
+    like, and whether a video is fully reviewed is derived from those
+    decisions.
     """
 
     async def node(state: VoiceRunState) -> VoiceRunState:
@@ -245,61 +227,14 @@ def _diarizing_node_factory(gateway: VoiceFactoryGateway):
         except VoiceFactoryError as error:
             return _fail(run, f"Could not read clips: {error}")
 
-        # the clips are read to check that ingest produced any, not to count
-        # them into the run: the count is the factory's, recomputed from
-        # review.csv whenever anyone asks
         if not video_clips.clips:
             return _fail(run, "Ingest produced no clips. Try a different video.")
-        return advance(run, VoiceRunPhase.AWAITING_REVIEW, "run")
 
-    return node
-
-
-def _committing_node_factory(gateway: VoiceFactoryGateway):
-    """COMMITTING: merge approved clips, then resample and preprocess.
-
-    Three stages run back to back here. Each tick starts the next one, so the
-    run walks through them one reconciler pass at a time.
-    """
-    ordered_stages = (STAGE_YOUTUBE_COMMIT, STAGE_RESAMPLE, STAGE_PREPROCESS)
-
-    async def node(state: VoiceRunState) -> VoiceRunState:
-        run = state["run"]
-        stage_index = min(run.commit_stage_index, len(ordered_stages) - 1)
-
-        if run.voyicer_job_id is None:
-            stage = ordered_stages[stage_index]
-            try:
-                job_id = await gateway.start_job(
-                    character=run.primary_character, stage=stage
-                )
-            except VoiceFactoryTransientError as error:
-                return defer(run, f"Could not start {stage}: {error}", "run")
-            except VoiceFactoryError as error:
-                return _fail(run, f"Could not start {stage}: {error}")
-            run.voyicer_job_id = job_id
-            return {"run": run, "changed": True}
-
-        try:
-            job_state = await gateway.get_job_state(run.voyicer_job_id)
-        except VoiceFactoryTransientError as error:
-            return defer(
-                run, f"Could not read job {run.voyicer_job_id}: {error}", "run"
-            )
-        except VoiceFactoryError as error:
-            return _fail(run, f"Could not read job {run.voyicer_job_id}: {error}")
-
-        if job_state == JOB_STATE_RUNNING:
-            return hold(run, "run")
-        if job_state != JOB_STATE_SUCCEEDED:
-            stage = ordered_stages[stage_index]
-            return _fail(run, f"Stage {stage} {job_state}. See its log for detail.")
-
-        if stage_index + 1 < len(ordered_stages):
-            run.commit_stage_index = stage_index + 1
-            run.voyicer_job_id = None
-            return {"run": run, "changed": True}
-        run.commit_stage_index = 0
-        return advance(run, VoiceRunPhase.TRAINING, "run")
+        # The one read of the factory's clips. From here on the review
+        # record is voice_clips in Postgres, so this import is what makes
+        # the video reviewable at all - and it never overwrites a decision
+        # already made, so a re-ingest of a reviewed video is safe.
+        await clip_repository.import_clips(run.video_id, video_clips.clips)
+        return advance(run, VoiceRunPhase.INGESTED, "run")
 
     return node

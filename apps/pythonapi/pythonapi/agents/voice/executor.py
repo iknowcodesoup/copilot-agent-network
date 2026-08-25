@@ -23,7 +23,6 @@ from pydantic import BaseModel, ValidationError
 from pythonapi.a2a_support.execution import start_task
 from pythonapi.agents.voice.interface import (
     VoiceAgentInterface,
-    VoiceReviewRequest,
     VoiceSearchRequest,
     VoiceSkill,
     VoiceStatusRequest,
@@ -48,12 +47,11 @@ REQUEST_MODELS: dict[VoiceSkill, type[BaseModel]] = {
     VoiceSkill.VOICE_SEARCH: VoiceSearchRequest,
     VoiceSkill.VOICE_RUN: VoiceRunRequest,
     VoiceSkill.VOICE_STATUS: VoiceStatusRequest,
-    VoiceSkill.VOICE_REVIEW: VoiceReviewRequest,
 }
 
 
 class VoiceAgentExecutor(AgentExecutor):
-    """Runs one of the four voice skills for one A2A task."""
+    """Runs one of the voice skills for one A2A task."""
 
     def __init__(self, agent: VoiceAgentInterface) -> None:
         self._agent = agent

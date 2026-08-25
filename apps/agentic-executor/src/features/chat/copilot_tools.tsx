@@ -10,12 +10,12 @@ import { z } from "zod"
 import { useRunForVideo, useStudio } from "./studio_provider"
 import {
   isActive,
-  useAssignRun,
   useStartRun,
   useVoiceRuns,
 } from "@/features/voices/api/use_voice_runs"
 import { useSpeakerBoard, useUpdateClips } from "@/features/voices/api/use_videos"
 import {
+  useAssignClips,
   useCreateVoice,
   useTrainVoice,
   useVoiceList,
@@ -64,7 +64,7 @@ export function CopilotStudioTools() {
 
   const board = useSpeakerBoard(currentVideoId, Boolean(currentVideoId))
   const updateClips = useUpdateClips(currentVideoId)
-  const assignRun = useAssignRun(currentRun?.id ?? "")
+  const assignClips = useAssignClips()
   const startRun = useStartRun()
   const createVoice = useCreateVoice()
   const trainVoice = useTrainVoice()
@@ -141,7 +141,7 @@ export function CopilotStudioTools() {
       id: voice.id,
       name: voice.name,
       phase: voice.phase,
-      speakerCount: voice.contributions.length,
+      clipCount: voice.clips.filter((clip) => clip.keep === true).length,
     })),
   })
 
@@ -154,7 +154,7 @@ export function CopilotStudioTools() {
       speakerLabel: clip.speakerLabel,
       keep: clip.keep,
       flagged: clip.flagged,
-      assignedVoice: clip.assignedVoice,
+      assignedVoice: clip.voiceName,
       text: clip.text.slice(0, CLIP_TEXT_LIMIT),
     })),
   })
@@ -211,12 +211,12 @@ export function CopilotStudioTools() {
       setView("videos")
 
       const target = all
-        ? clips.filter((clip) => !clip.keep && !clip.flagged)
+        ? clips.filter((clip) => clip.keep === null && !clip.flagged)
         : clips.filter((clip) => (clipNumbers ?? []).includes(clip.index))
 
       if (target.length === 0) return { changed: 0, reason: "Nothing to keep." }
       await updateClips.mutateAsync(
-        target.map((clip) => ({ clipId: clip.clipId, keep: true })),
+        target.map((clip) => ({ clipId: clip.clipId, keep: "kept" as const })),
       )
       return { changed: target.length, video: runTitle(currentRun) }
     },
@@ -244,14 +244,14 @@ export function CopilotStudioTools() {
       setView("videos")
 
       const target = flaggedOnly
-        ? clips.filter((clip) => clip.flagged && clip.keep)
+        ? clips.filter((clip) => clip.flagged && clip.keep === true)
         : all
-          ? clips.filter((clip) => clip.keep)
+          ? clips.filter((clip) => clip.keep === true)
           : clips.filter((clip) => (clipNumbers ?? []).includes(clip.index))
 
       if (target.length === 0) return { changed: 0, reason: "Nothing to discard." }
       await updateClips.mutateAsync(
-        target.map((clip) => ({ clipId: clip.clipId, keep: false })),
+        target.map((clip) => ({ clipId: clip.clipId, keep: "excluded" as const })),
       )
       return { changed: target.length, video: runTitle(currentRun) }
     },
@@ -260,40 +260,45 @@ export function CopilotStudioTools() {
   useFrontendTool({
     name: "assignSpeaker",
     description:
-      "Bind the speaker heard in a clip to a voice model, creating that voice " +
-      "if it does not exist. The binding is per speaker, not per clip, so it " +
-      "covers every clip that speaker appears in.",
+      "Assign a clip to a voice model, creating that voice if it does not " +
+      "exist. While the clip is still unassigned this covers every clip of " +
+      "the same speaker, which is how a whole speaker is named in one go. " +
+      "Once a clip already shows a voice, it assigns that clip alone.",
     parameters: z.object({
       clipNumber: z.number().describe("Clip number as shown in the clip table"),
-      voiceName: z.string().describe("Name of the voice model to bind to"),
+      voiceName: z.string().describe("Name of the voice model to assign to"),
     }),
     handler: async ({ clipNumber, voiceName }) => {
-      if (!currentRun) return { error: "No video is selected." }
+      if (!currentVideoId) return { error: "No video is selected." }
       const clip = clips.find((candidate) => candidate.index === clipNumber)
       if (!clip) return { error: `No clip ${clipNumber} in this video.` }
-      if (!clip.speakerLabel)
-        return { error: `Clip ${clipNumber} has no speaker label to bind.` }
 
       const voice = await resolveVoice(voiceName)
       if (!voice) return { error: `Could not find or create voice ${voiceName}.` }
 
-      /* Spread the run's current map: assign replaces it wholesale, so one
-         pair alone would erase every other speaker. */
-      await assignRun.mutateAsync({
-        ...currentRun.voiceAssignments,
-        [clip.speakerLabel]: voice.id,
+      /* Same rule the clip list follows: the speaker label is a bulk-select
+         while the clip is unnamed, and a correction after that names one
+         clip - a diarized group is not always one person. */
+      const groupWide = clip.voiceName === null && Boolean(clip.speakerLabel)
+      const clipIds = groupWide
+        ? clips
+            .filter((candidate) => candidate.speakerLabel === clip.speakerLabel)
+            .map((candidate) => candidate.clipId)
+        : [clip.clipId]
+
+      await assignClips.mutateAsync({
+        voiceId: voice.id,
+        videoId: currentVideoId,
+        clipIds,
       })
 
-      const shared = clips.filter(
-        (candidate) => candidate.speakerLabel === clip.speakerLabel,
-      ).length
       return {
-        speakerLabel: clip.speakerLabel,
         voice: voice.name,
-        clipsCovered: shared,
+        clipsCovered: clipIds.length,
+        speakerLabel: clip.speakerLabel,
       }
     },
-  }, [clips, currentRun, assignRun, voices])
+  }, [clips, currentVideoId, assignClips, voices])
 
   useFrontendTool({
     name: "createVoice",
@@ -314,7 +319,7 @@ export function CopilotStudioTools() {
     name: "startTraining",
     description:
       "Start a training run for a voice model. The voice needs at least one " +
-      "speaker assigned before there is anything to train on.",
+      "kept clip assigned before there is anything to train on.",
     parameters: z.object({
       voiceName: z
         .string()
@@ -326,8 +331,8 @@ export function CopilotStudioTools() {
         (voiceName ? findVoiceByName(voiceName) : undefined) ??
         voices.find((candidate) => candidate.id === selectedVoiceId)
       if (!voice) return { error: "No voice named, and none selected." }
-      if (voice.contributions.length === 0)
-        return { error: `${voice.name} has no speakers assigned yet.` }
+      if (voice.clips.every((clip) => clip.keep !== true))
+        return { error: `${voice.name} has no kept clips assigned yet.` }
 
       setView("voices")
       setSelectedVoiceId(voice.id)

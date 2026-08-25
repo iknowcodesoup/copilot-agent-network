@@ -59,21 +59,21 @@ export function useVideoSearch(query: string) {
   });
 }
 
-/* Write review decisions straight through to the factory's review.csv, which
-   stays the one source of truth for them. Nothing is counted back into a run:
-   the counts are the factory's, so the videos list is refreshed instead. */
+/* Keep, exclude, retype or trim clips. These go to pythonapi, not the
+   factory: the review record is a Postgres table, so this is the one writer.
+   Which voice a clip trains is a separate call - see useAssignClips - so
+   culling a group never disturbs the assignment that put it there. */
 export function useUpdateClips(videoId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (decisions: ClipDecision[]) =>
-      request<{ videoId: string; updated: number; clips: ClipSummary[] }>(
-        `/videos/${videoId}/clips`,
-        { method: "PATCH", body: jsonBody({ decisions }) },
-        voiceFactoryBase,
-      ),
+      request<ClipSummary[]>(`/videos/${videoId}/clips`, {
+        method: "PATCH",
+        body: jsonBody({ decisions }),
+      }),
     /* The response carries the clips as they now stand, so write them in
        rather than asking for them again. */
-    onSuccess: ({ clips }) => {
+    onSuccess: (clips) => {
       const edited = new Map(clips.map((clip) => [clip.clipId, clip]));
       queryClient.setQueryData<SpeakerBoard>(
         voiceQueryKeys.speakers(videoId),
@@ -88,9 +88,9 @@ export function useUpdateClips(videoId: string) {
             })),
           },
       );
-      /* Keeping or excluding a clip moves the factory's own counts, and only
-         it can recompute them. */
-      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.videos });
+      /* A voice is made of kept clips, so excluding one changes what every
+         card on the Voices view reports. */
+      queryClient.invalidateQueries({ queryKey: voiceQueryKeys.voiceList });
     },
   });
 }
