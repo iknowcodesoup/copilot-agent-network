@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StudioProvider, useStudio } from "@/features/chat/studio_provider";
 import { CopilotProvider } from "@/features/chat/copilot_provider";
@@ -63,7 +64,8 @@ function ViewTabs() {
 
 function StudioShell() {
   const { view } = useStudio();
-  const [logOpen, setLogOpen] = useState(true);
+  const [logOpen, setLogOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -92,6 +94,18 @@ function StudioShell() {
                 {logOpen ? "Hide logs" : "Show logs"}
               </button>
               <ThemeToggle />
+              <button
+                type="button"
+                onClick={() => setChatOpen((o) => !o)}
+                title={chatOpen ? "Hide copilot" : "Show copilot"}
+                className="hidden rounded-md border border-border bg-card px-2 py-1.5 text-muted-foreground transition-colors hover:text-foreground lg:block"
+              >
+                {chatOpen ? (
+                  <ChevronRight className="size-4" />
+                ) : (
+                  <ChevronLeft className="size-4" />
+                )}
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -128,9 +142,11 @@ function StudioShell() {
         </div>
       </div>
 
-      <div className="hidden w-80 shrink-0 lg:block xl:w-96">
-        <ChatPanel />
-      </div>
+      {chatOpen && (
+        <div className="hidden w-80 shrink-0 lg:block xl:w-96">
+          <ChatPanel />
+        </div>
+      )}
     </div>
   );
 }

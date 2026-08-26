@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 import type { StudioClip } from "./types";
 import { formatDuration } from "@/lib/format";
 import { useUpdateClips } from "./api/use_videos";
+import { AudioPlayerBar } from "./audio_player_bar";
+import { clipAudioUrl } from "./api/query_keys";
 
 /*
  * Clip writes target clip.videoId directly, never a shared "active" video id.
@@ -102,7 +104,7 @@ export function ClipRow({
           assignedVoiceName={clip.voiceName}
           onSelect={onAssignVoice}
         />
-        <button
+        {/* <button
           type="button"
           onClick={() => (playing ? onPauseVideo() : onPlayClip())}
           disabled={!hasTiming}
@@ -114,7 +116,15 @@ export function ClipRow({
           ) : (
             <Play className="size-3.5 translate-x-px" />
           )}
-        </button>
+        </button> */}
+        <AudioPlayerBar
+          src={clipAudioUrl(clip.videoId, clip.clipId, {
+            startSec: clip.startSec,
+            endSec: clip.endSec,
+          })}
+          onPlayAt={clip.startSec == null ? undefined : () => onPlayClip()}
+          onStop={clip.startSec == null ? undefined : onPauseVideo}
+        />
         <span className="font-mono text-[0.7rem] text-muted-foreground">
           {hasTiming
             ? `${formatDuration(clip.durationSec ?? 0)}`

@@ -217,6 +217,23 @@ class VoiceFactoryGateway:
             clips=[ClipSummary(**clip) for clip in payload["clips"]],
         )
 
+    async def get_transcript_text(
+        self, video_id: str, start_sec: float, end_sec: float
+    ) -> str:
+        """The video's own transcript, joined over one time window.
+
+        Backs the resize-fills-the-text behaviour in update_clips: a clip's
+        text tracks its transcript until a reviewer types over it. "" means
+        no transcript.json yet on the factory side, same as the route itself
+        answers - there is nothing to fill in with.
+        """
+        payload = await self._request(
+            "GET",
+            f"/videos/{video_id}/transcript_text",
+            params={"start_sec": start_sec, "end_sec": end_sec},
+        )
+        return payload["text"]
+
     async def get_training_progress(self, character: str) -> TrainingProgress:
         # training has no video_id concept, so this stays character-scoped
         payload = await self._request("GET", f"/characters/{character}/training")

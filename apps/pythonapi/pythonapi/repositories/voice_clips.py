@@ -81,9 +81,7 @@ class VoiceClipRepository(Protocol):
         """Point these clips at this voice. Answers how many rows changed."""
         ...
 
-    async def unassign_clips(
-        self, video_id: str, clip_ids: Sequence[str]
-    ) -> int:
+    async def unassign_clips(self, video_id: str, clip_ids: Sequence[str]) -> int:
         """Take these clips off whatever voice holds them."""
         ...
 
@@ -179,9 +177,7 @@ class InMemoryVoiceClipRepository:
     async def list_clips_for_voices(
         self, voice_ids: Sequence[str]
     ) -> dict[str, list[ClipSummary]]:
-        grouped: dict[str, list[ClipSummary]] = {
-            voice_id: [] for voice_id in voice_ids
-        }
+        grouped: dict[str, list[ClipSummary]] = {voice_id: [] for voice_id in voice_ids}
         wanted = set(voice_ids)
         for (video_id, _), clip in sorted(
             self._clips.items(), key=lambda item: (item[0][0], item[1].start_sec)
@@ -210,6 +206,9 @@ def _apply_decision(clip: ClipSummary, decision: ClipDecision) -> None:
         clip.speaker_label = decision.speaker_label
     if decision.text is not None:
         clip.text = decision.text
+        clip.text_edited = (
+            decision.text_edited if decision.text_edited is not None else True
+        )
     if decision.start_sec is not None and decision.end_sec is not None:
         clip.start_sec = decision.start_sec
         clip.end_sec = decision.end_sec
@@ -237,6 +236,7 @@ class PostgresVoiceClipRepository:
                         "clip_id": clip.clip_id,
                         "keep": clip.keep,
                         "text": clip.text,
+                        "text_edited": clip.text_edited,
                         "start_sec": clip.start_sec or 0.0,
                         "end_sec": clip.end_sec or 0.0,
                         "duration_sec": clip.duration_sec or 0.0,
@@ -322,9 +322,7 @@ class PostgresVoiceClipRepository:
     async def list_clips_for_voices(
         self, voice_ids: Sequence[str]
     ) -> dict[str, list[ClipSummary]]:
-        grouped: dict[str, list[ClipSummary]] = {
-            voice_id: [] for voice_id in voice_ids
-        }
+        grouped: dict[str, list[ClipSummary]] = {voice_id: [] for voice_id in voice_ids}
         if not voice_ids:
             return grouped
         async with AsyncSession(self._engine) as session:
@@ -359,6 +357,7 @@ def _clip_from_row(row: VoiceClipRow) -> ClipSummary:
         start_sec=row.start_sec,
         end_sec=row.end_sec,
         text=row.text,
+        text_edited=row.text_edited,
         excluded_reason=row.excluded_reason,
     )
 
@@ -369,6 +368,7 @@ def _write_clip_onto_row(row: VoiceClipRow, clip: ClipSummary) -> None:
     row.keep = clip.keep
     row.speaker_label = clip.speaker_label
     row.text = clip.text
+    row.text_edited = clip.text_edited
     row.start_sec = clip.start_sec or 0.0
     row.end_sec = clip.end_sec or 0.0
     row.duration_sec = clip.duration_sec or 0.0

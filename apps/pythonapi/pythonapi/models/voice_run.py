@@ -147,6 +147,10 @@ class ClipSummary(BaseModel):
     start_sec: float | None = None
     end_sec: float | None = None
     text: str = ""
+    # False means text still tracks the video's own transcript for this
+    # clip's bounds - a resize is free to refill it. True means a reviewer
+    # typed over it, so a resize must leave it alone. See ClipDecision below.
+    text_edited: bool = False
     excluded_reason: str = ""
 
 
@@ -219,10 +223,19 @@ class ClipDecision(BaseModel):
     keep: ClipKeepDecision | None = None
     speaker_label: str | None = None
     text: str | None = None
+    # Paired with text: None defaults to True (a caller sending text typed it
+    # by hand). Only the transcript-fill and reset paths send text alongside
+    # an explicit False, because they are supplying text the reviewer did not
+    # type - a resize must still be free to overwrite it later.
+    text_edited: bool | None = None
     # The trim bar's write. Both bounds move together or neither does - a
     # start past its end is not a clip, and half a trim would store one.
     start_sec: float | None = None
     end_sec: float | None = None
+    # Force text back to the video's own transcript for this clip's current
+    # (or newly given, if start_sec/end_sec ride along) bounds, regardless of
+    # whether it was hand-edited - the row's "reset to transcription" button.
+    reset_text: bool = False
 
 
 class ClipDecisionRequest(BaseModel):

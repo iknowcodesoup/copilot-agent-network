@@ -73,5 +73,3 @@ async def start_voice_run(
     )
     await repository.create_run(run)
     return VoiceRunResponse(id=run.id, phase=run.phase)
-
-

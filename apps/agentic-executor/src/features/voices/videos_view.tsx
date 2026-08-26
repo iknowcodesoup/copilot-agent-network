@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useVideos } from "./api/use_videos";
 import { useVoiceRuns } from "./api/use_voice_runs";
 import { useStudio } from "@/features/chat/studio_provider";
@@ -20,6 +20,7 @@ export function VideosView() {
   const videos = useVideos();
   const runs = useVoiceRuns();
   const { selectedVideoId, setSelectedVideoId } = useStudio();
+  const [listCollapsed, setListCollapsed] = useState(false);
   const videoList = useMemo(() => videos.data ?? [], [videos.data]);
   const runList = useMemo(() => runs.data ?? [], [runs.data]);
 
@@ -54,6 +55,8 @@ export function VideosView() {
         runs={runList}
         selectedVideoId={selectedVideo?.videoId ?? null}
         onSelectVideo={setSelectedVideoId}
+        collapsed={listCollapsed}
+        onToggleCollapsed={() => setListCollapsed((c) => !c)}
       />
       {selectedVideo ? (
         <ClipReviewPane key={selectedVideo.videoId} video={selectedVideo} run={selectedRun} />

@@ -200,6 +200,9 @@ class VoiceClipRow(Base):
     # review pill counts.
     keep: Mapped[bool | None] = mapped_column(default=None)
     text: Mapped[str] = mapped_column(default="")
+    # False: text still tracks the video's transcript and a resize may refill
+    # it. True: a reviewer typed over it, so a resize must leave it alone.
+    text_edited: Mapped[bool] = mapped_column(default=False)
     # Bounds into the video's full.wav, in seconds. The trim bar writes them,
     # and a slice is cut from them on demand - which is why a trim needs no
     # re-cut of any file.

@@ -1,6 +1,6 @@
 "use client";
 
-import { Film } from "lucide-react";
+import { ChevronLeft, ChevronRight, Film } from "lucide-react";
 import { VideoCard } from "./video_card";
 import { RunActions } from "./run_actions";
 import { StatusPill } from "./status_pill";
@@ -18,16 +18,35 @@ export function VideoListPanel({
   runs,
   selectedVideoId,
   onSelectVideo,
+  collapsed,
+  onToggleCollapsed,
 }: {
   videos: VideoSummary[];
   runs: VoiceRun[];
   selectedVideoId: string | null;
   onSelectVideo: (videoId: string) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }) {
   const orphanedRuns = runs.filter(
     (run) =>
       !run.videoId || !videos.some((video) => video.videoId === run.videoId),
   );
+
+  if (collapsed) {
+    return (
+      <div className="flex w-10 shrink-0 flex-col items-center border-r border-border py-3">
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          title="Show videos"
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronRight className="size-4" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex w-80 shrink-0 flex-col border-r border-border min-h-0">
@@ -39,6 +58,14 @@ export function VideoListPanel({
             <span className="ml-auto font-mono text-xs text-muted-foreground">
               {videos.length}
             </span>
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              title="Hide videos"
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
           </div>
           {videos.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border p-6 text-center">

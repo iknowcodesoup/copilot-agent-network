@@ -9,6 +9,8 @@ import { YoutubeEmbedPlayer, type VideoCue } from "./youtube_embed_player";
 import { ClipTrimBar } from "./clip_trim_bar";
 import { ClipListPanel } from "./clip_list_panel";
 import type { VideoSummary, VoiceRun } from "./types";
+import { StatusPill } from "./status_pill";
+import { toneForPhase } from "./derive";
 
 /* Click the title to correct it. The factory owns the name - it lives in
    meta.json beside the clips - so the rename is visible to every character
@@ -116,7 +118,13 @@ export function ClipReviewPane({
     resetSec?: number,
   ) => {
     cueCount.current += 1;
-    setVideoCue({ action, startSec, endSec, resetSec, token: cueCount.current });
+    setVideoCue({
+      action,
+      startSec,
+      endSec,
+      resetSec,
+      token: cueCount.current,
+    });
   };
 
   /* Which clip is currently sourcing the video's audio, if any - cleared
@@ -148,6 +156,10 @@ export function ClipReviewPane({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <VideoTitle video={video} />
+      </div>
+
       {run && (
         <div className="flex flex-col gap-2">
           {/* The failure text is the only record of why a run stopped, so
@@ -204,10 +216,11 @@ export function ClipReviewPane({
              scrubbed - rather than always restarting at startSec. Only valid
              when the tracked position still belongs to this same clip; a
              different clip's row falls back to its own start. */
-          const resumeSec =
-            timelineClipId === clip.clipId && currentTimeSec != null
-              ? currentTimeSec
-              : clip.startSec;
+          const resumeSec = clip.startSec;
+          timelineClipId === clip.clipId && currentTimeSec != null
+            ? currentTimeSec
+            : clip.startSec;
+          console.debug("resumeSec", currentTimeSec, clip.startSec);
           setPlayingClipId(clip.clipId);
           setTimelineClipId(clip.clipId);
           sendCue("play", resumeSec, clip.endSec, clip.startSec);

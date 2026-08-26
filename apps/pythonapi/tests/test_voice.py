@@ -33,6 +33,7 @@ from pythonapi.dependencies import (
     get_required_voice_repository,
     get_required_voice_run_reconciler,
     get_required_voice_run_repository,
+    get_voice_factory_gateway,
 )
 from pythonapi.infrastructure.redis_client import (
     build_blocking_redis_client,
@@ -90,6 +91,8 @@ class FakeVoiceFactoryGateway:
         self.fail_with: VoiceFactoryError | None = None
         self.commit_calls: list[dict] = []
         self.committed: dict[str, int] = {}
+        self.transcript_texts: dict[tuple[str, float, float], str] = {}
+        self.transcript_text_calls: list[tuple[str, float, float]] = []
 
     def _guard(self) -> None:
         if self.fail_with is not None:
@@ -180,6 +183,13 @@ class FakeVoiceFactoryGateway:
         self.commit_calls.append(assignments)
         return dict(self.committed)
 
+    async def get_transcript_text(
+        self, video_id: str, start_sec: float, end_sec: float
+    ) -> str:
+        self._guard()
+        self.transcript_text_calls.append((video_id, start_sec, end_sec))
+        return self.transcript_texts.get((video_id, start_sec, end_sec), "")
+
     async def get_training_progress(self, character: str) -> TrainingProgress:
         self._guard()
         return TrainingProgress(
@@ -224,6 +234,36 @@ def clip(clip_id: str, speaker_label: str | None, keep: bool = True) -> ClipSumm
         duration_sec=3.0,
         text=f"line for {clip_id}",
     )
+
+
+@pytest.mark.asyncio
+async def test_a_manual_text_decision_defaults_to_edited():
+    clips = InMemoryVoiceClipRepository()
+    await clips.import_clips("vid_abc123", [clip("clip_0001", "SPEAKER_00")])
+
+    changed = await clips.apply_decisions(
+        "vid_abc123", [ClipDecision(clip_id="clip_0001", text="hand typed")]
+    )
+
+    assert changed[0].text == "hand typed"
+    assert changed[0].text_edited is True
+
+
+@pytest.mark.asyncio
+async def test_a_text_decision_with_text_edited_false_stays_unedited():
+    """What the transcript-fill and reset paths send: text they derived, not
+    text a reviewer typed, so a later plain resize must still be free to
+    refill it."""
+    clips = InMemoryVoiceClipRepository()
+    await clips.import_clips("vid_abc123", [clip("clip_0001", "SPEAKER_00")])
+
+    changed = await clips.apply_decisions(
+        "vid_abc123",
+        [ClipDecision(clip_id="clip_0001", text="from transcript", text_edited=False)],
+    )
+
+    assert changed[0].text == "from transcript"
+    assert changed[0].text_edited is False
 
 
 def make_voice(voice_id: str, name: str) -> Voice:
@@ -298,6 +338,7 @@ def voice_client(
     reconciler,
 ):
     app.dependency_overrides[get_required_voice_factory_gateway] = lambda: gateway
+    app.dependency_overrides[get_voice_factory_gateway] = lambda: gateway
     app.dependency_overrides[get_required_voice_run_repository] = lambda: repository
     app.dependency_overrides[get_required_voice_clip_repository] = lambda: (
         clip_repository
@@ -460,6 +501,161 @@ async def test_get_clips_carries_excluded_reason_through_to_the_speaker_board(
     by_id = {c["clip_id"]: c for c in clips}
     assert by_id["clip_0001"]["excluded_reason"] == "too_short"
     assert by_id["clip_0002"]["excluded_reason"] == ""
+
+
+@pytest.mark.asyncio
+async def test_resizing_an_unedited_clip_refills_text_from_the_transcript(
+    voice_client, clip_repository, gateway
+):
+    await clip_repository.import_clips(
+        "vid_abc123",
+        [
+            ClipSummary(
+                clip_id="clip_0001", keep=True, start_sec=0.0, end_sec=3.0, text="old"
+            )
+        ],
+    )
+    gateway.transcript_texts[("vid_abc123", 0.5, 3.5)] = "fresh transcript text"
+
+    response = voice_client.patch(
+        "/api/voice/videos/vid_abc123/clips",
+        json={
+            "decisions": [{"clip_id": "clip_0001", "start_sec": 0.5, "end_sec": 3.5}]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()[0]
+    assert body["start_sec"] == 0.5
+    assert body["text"] == "fresh transcript text"
+    assert body["text_edited"] is False
+
+
+@pytest.mark.asyncio
+async def test_resizing_an_edited_clip_leaves_its_text_alone(
+    voice_client, clip_repository, gateway
+):
+    await clip_repository.import_clips(
+        "vid_abc123",
+        [
+            ClipSummary(
+                clip_id="clip_0001", keep=True, start_sec=0.0, end_sec=3.0, text=""
+            )
+        ],
+    )
+    await clip_repository.apply_decisions(
+        "vid_abc123",
+        [ClipDecision(clip_id="clip_0001", text="hand typed", text_edited=True)],
+    )
+    gateway.transcript_texts[("vid_abc123", 0.5, 3.5)] = "should not appear"
+
+    response = voice_client.patch(
+        "/api/voice/videos/vid_abc123/clips",
+        json={
+            "decisions": [{"clip_id": "clip_0001", "start_sec": 0.5, "end_sec": 3.5}]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()[0]
+    assert body["text"] == "hand typed"
+    assert body["text_edited"] is True
+    assert gateway.transcript_text_calls == []
+
+
+@pytest.mark.asyncio
+async def test_reset_text_forces_a_refill_even_on_an_edited_clip(
+    voice_client, clip_repository, gateway
+):
+    await clip_repository.import_clips(
+        "vid_abc123",
+        [
+            ClipSummary(
+                clip_id="clip_0001", keep=True, start_sec=1.0, end_sec=4.0, text=""
+            )
+        ],
+    )
+    await clip_repository.apply_decisions(
+        "vid_abc123",
+        [ClipDecision(clip_id="clip_0001", text="hand typed", text_edited=True)],
+    )
+    gateway.transcript_texts[("vid_abc123", 1.0, 4.0)] = "back to the transcript"
+
+    response = voice_client.patch(
+        "/api/voice/videos/vid_abc123/clips",
+        json={"decisions": [{"clip_id": "clip_0001", "reset_text": True}]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()[0]
+    assert body["text"] == "back to the transcript"
+    assert body["text_edited"] is False
+    assert gateway.transcript_text_calls == [("vid_abc123", 1.0, 4.0)]
+
+
+@pytest.mark.asyncio
+async def test_a_transcript_lookup_failure_still_saves_the_resize(
+    voice_client, clip_repository, gateway
+):
+    """The bounds are the reviewer's own edit and must save even when the
+    factory cannot answer for the transcript - see
+    apply_decisions_with_transcript_fill."""
+    await clip_repository.import_clips(
+        "vid_abc123",
+        [
+            ClipSummary(
+                clip_id="clip_0001", keep=True, start_sec=0.0, end_sec=3.0, text="old"
+            )
+        ],
+    )
+    gateway.fail_with = VoiceFactoryError("factory down")
+
+    response = voice_client.patch(
+        "/api/voice/videos/vid_abc123/clips",
+        json={
+            "decisions": [{"clip_id": "clip_0001", "start_sec": 0.5, "end_sec": 3.5}]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()[0]
+    assert body["start_sec"] == 0.5
+    assert body["text"] == "old"
+
+
+@pytest.mark.asyncio
+async def test_update_clips_keeps_working_with_no_voice_factory_configured(
+    client, clip_repository, voice_repository
+):
+    """update_clips is a Postgres-only write and must not need the factory
+    (see get_voice_factory_gateway's own docstring). Overriding only the
+    optional dependency to None, and never the required one, proves the
+    resize path itself never reaches for the required gateway."""
+    app.dependency_overrides[get_required_voice_clip_repository] = lambda: (
+        clip_repository
+    )
+    app.dependency_overrides[get_required_voice_repository] = lambda: voice_repository
+    app.dependency_overrides[get_voice_factory_gateway] = lambda: None
+    await clip_repository.import_clips(
+        "vid_abc123",
+        [
+            ClipSummary(
+                clip_id="clip_0001", keep=True, start_sec=0.0, end_sec=3.0, text="old"
+            )
+        ],
+    )
+
+    response = client.patch(
+        "/api/voice/videos/vid_abc123/clips",
+        json={
+            "decisions": [{"clip_id": "clip_0001", "start_sec": 0.5, "end_sec": 3.5}]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()[0]
+    assert body["start_sec"] == 0.5
+    assert body["text"] == "old"
 
 
 @pytest.mark.asyncio

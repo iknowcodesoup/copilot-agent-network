@@ -10,6 +10,7 @@ from contextlib import suppress
 from fastapi import APIRouter, Depends, status
 
 from pythonapi.core.speaker_board import build_speaker_board
+from pythonapi.core.voice_clip_transcript import apply_decisions_with_transcript_fill
 from pythonapi.core.voice_clip_view import name_assigned_voices
 from pythonapi.core.voice_factory_gateway import (
     VoiceFactoryError,
@@ -20,6 +21,7 @@ from pythonapi.dependencies import (
     get_required_voice_factory_gateway,
     get_required_voice_repository,
     get_required_voice_run_repository,
+    get_voice_factory_gateway,
 )
 from pythonapi.models.voice_run import (
     ClipDecisionRequest,
@@ -72,15 +74,22 @@ async def update_clips(
     decisions_request: ClipDecisionRequest,
     clip_repository: VoiceClipRepository = Depends(get_required_voice_clip_repository),
     voice_repository: VoiceRepository = Depends(get_required_voice_repository),
+    gateway: VoiceFactoryGateway | None = Depends(get_voice_factory_gateway),
 ):
     """Keep, exclude, retype or trim clips of one video.
 
     Which voice a clip trains is not here - see POST /api/voices/{id}/clips.
     Splitting them is what lets a reviewer assign a whole speaker at once and
     then cull it clip by clip, without either write undoing the other.
+
+    A plain resize (bounds with no text) also refills text from the video's
+    transcript, unless the clip's text was already hand-edited - see
+    apply_decisions_with_transcript_fill. The gateway is optional, same as
+    every other Postgres-owned write here: VOICE_FACTORY_URL unset just
+    skips the fill.
     """
-    changed = await clip_repository.apply_decisions(
-        video_id, decisions_request.decisions
+    changed = await apply_decisions_with_transcript_fill(
+        video_id, decisions_request.decisions, clip_repository, gateway
     )
     return await name_assigned_voices(changed, voice_repository)
 
