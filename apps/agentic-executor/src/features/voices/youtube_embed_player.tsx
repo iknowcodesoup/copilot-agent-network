@@ -22,6 +22,10 @@ export interface VideoCue {
      sound, so nothing else marks the end of a clip the way a trimmed WAV's
      own duration used to. Omitted for a bare seek or an untimed play. */
   endSec?: number;
+  /* Where a "play" cue should snap back to once it hits endSec - the
+     selection's own start, regardless of where this particular play began.
+     Ignored without an endSec. */
+  resetSec?: number;
   token: number;
 }
 
@@ -36,6 +40,7 @@ export function YoutubeEmbedPlayer({
   cue,
   onPlaying,
   onPause,
+  onTimeUpdate,
 }: {
   video: VideoSummary;
   cue: VideoCue | null;
@@ -44,11 +49,14 @@ export function YoutubeEmbedPlayer({
      the end-of-clip pause happens inside the player hook, not at the caller. */
   onPlaying?: () => void;
   onPause?: () => void;
+  /* The video's live position while playing, so a caller can move a
+     playhead of its own (the trim bar's cursor) in step with it. */
+  onTimeUpdate?: (seconds: number) => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const videoId = youtubeVideoId(video.url);
   const { containerRef, ready, playing, seekTo, playVideo, pauseVideo } =
-    useYoutubePlayer(videoId, mounted);
+    useYoutubePlayer(videoId, mounted, onTimeUpdate);
 
   /* A play cue mounts the player itself. Waiting for the facade click first
      is what made the very first clip play move nothing at all: no player
@@ -64,7 +72,7 @@ export function YoutubeEmbedPlayer({
       return;
     }
     seekTo(cue.startSec);
-    if (cue.action === "play") playVideo(cue.endSec);
+    if (cue.action === "play") playVideo(cue.endSec, cue.resetSec);
     // The three player calls are recreated every render but always read the
     // latest player ref, so only ready and the cue trigger this - including
     // them would re-seek on every render. `ready` stays a dependency so a

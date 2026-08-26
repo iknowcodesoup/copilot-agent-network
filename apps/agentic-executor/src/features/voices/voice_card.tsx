@@ -1,8 +1,9 @@
 "use client";
 
-import { Mic, AudioLines, Clapperboard } from "lucide-react";
+import { Mic, AudioLines, Clapperboard, Clock } from "lucide-react";
 import { StatusPill } from "./status_pill";
 import { cn } from "@/lib/utils";
+import { formatTotalDuration } from "@/lib/format";
 import type { VoiceDetail } from "./types";
 
 /*
@@ -12,9 +13,10 @@ import type { VoiceDetail } from "./types";
  * so the card counts those rows rather than a stored total - there is no clip
  * count column, and inventing one would give the same fact two writers.
  *
- * Only kept clips train, so the card says how many of them there are. A voice
- * holding forty clips of which two are kept is two clips of training audio,
- * and reporting forty would be a promise the compile does not keep.
+ * Only kept clips train, so the card says how many of them there are and how
+ * much audio they add up to. A voice holding forty clips of which two are
+ * kept is two clips of training audio, and reporting forty would be a
+ * promise the compile does not keep.
  */
 export function VoiceCard({
   voice,
@@ -25,7 +27,12 @@ export function VoiceCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const keptCount = voice.clips.filter((clip) => clip.keep === true).length;
+  const keptClips = voice.clips.filter((clip) => clip.keep === true);
+  const keptCount = keptClips.length;
+  const keptDurationSec = keptClips.reduce(
+    (total, clip) => total + clip.durationSec,
+    0,
+  );
   const videoCount = new Set(voice.clips.map((clip) => clip.videoId)).size;
   const active = voice.phase === "training";
   return (
@@ -70,6 +77,10 @@ export function VoiceCard({
             <span className="inline-flex items-center gap-1">
               <Clapperboard className="size-3" />
               {videoCount} video{videoCount === 1 ? "" : "s"}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Clock className="size-3" />
+              {formatTotalDuration(keptDurationSec)}
             </span>
           </>
         )}

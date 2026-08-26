@@ -81,7 +81,15 @@ const END_WATCH_INTERVAL_MS = 200;
    WAV to keep in sync, which is the whole point: one media element cannot
    drift from itself. Starting unmuted needs a user gesture, which every
    caller already has (a click on the play button or the facade thumbnail). */
-export function useYoutubePlayer(videoId: string | null, mounted: boolean) {
+export function useYoutubePlayer(
+  videoId: string | null,
+  mounted: boolean,
+  /* Fired at END_WATCH_INTERVAL_MS while playing, and once more with
+     resetSec (see playVideo) the instant playback auto-stops at endSec.
+     Held in a ref, not a dependency, so a caller passing a fresh closure
+     every render never tears down the poll interval below. */
+  onTimeUpdate?: (seconds: number) => void,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YoutubePlayer | null>(null);
   const [ready, setReady] = useState(false);
@@ -90,6 +98,14 @@ export function useYoutubePlayer(videoId: string | null, mounted: boolean) {
      which are set up once per player and would otherwise close over a stale
      endSec from whichever play() call was current when they were bound. */
   const endSecRef = useRef<number | null>(null);
+  /* Where playback snaps back to once it hits endSec - the selection's own
+     start, not wherever this particular play() began. Null means "just
+     stop", which is every cue that names no clip range. */
+  const resetSecRef = useRef<number | null>(null);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  useEffect(() => {
+    onTimeUpdateRef.current = onTimeUpdate;
+  });
 
   useEffect(() => {
     if (!mounted || !videoId || !containerRef.current) return;
@@ -126,9 +142,18 @@ export function useYoutubePlayer(videoId: string | null, mounted: boolean) {
     const interval = setInterval(() => {
       const endSec = endSecRef.current;
       const player = playerRef.current;
-      if (endSec != null && player && player.getCurrentTime() >= endSec) {
+      if (!player) return;
+      const currentTime = player.getCurrentTime();
+      if (endSec != null && currentTime >= endSec) {
         player.pauseVideo();
+        const resetSec = resetSecRef.current;
+        if (resetSec != null) {
+          player.seekTo(resetSec, true);
+          onTimeUpdateRef.current?.(resetSec);
+        }
+        return;
       }
+      onTimeUpdateRef.current?.(currentTime);
     }, END_WATCH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [playing]);
@@ -138,9 +163,11 @@ export function useYoutubePlayer(videoId: string | null, mounted: boolean) {
   };
 
   /* endSec is optional: a cue with no clip bounds (or the muted preview's
-     old "seek" cue) just plays on. */
-  const playVideo = (endSec?: number) => {
+     old "seek" cue) just plays on. resetSec only ever matters alongside an
+     endSec - see the poll above. */
+  const playVideo = (endSec?: number, resetSec?: number) => {
     endSecRef.current = endSec ?? null;
+    resetSecRef.current = resetSec ?? null;
     if (ready) playerRef.current?.playVideo();
   };
 

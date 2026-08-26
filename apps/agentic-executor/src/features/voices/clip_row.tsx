@@ -97,6 +97,29 @@ export function ClipRow({
         <span className="font-mono text-[0.7rem] text-muted-foreground/60">
           #{String(ordinal).padStart(2, "0")}
         </span>
+        <VoicePicker
+          label={clip.speakerLabel ?? "this clip"}
+          assignedVoiceName={clip.voiceName}
+          onSelect={onAssignVoice}
+        />
+        <button
+          type="button"
+          onClick={() => (playing ? onPauseVideo() : onPlayClip())}
+          disabled={!hasTiming}
+          aria-label={playing ? "Pause clip" : "Play clip in video"}
+          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {playing ? (
+            <Pause className="size-3.5" />
+          ) : (
+            <Play className="size-3.5 translate-x-px" />
+          )}
+        </button>
+        <span className="font-mono text-[0.7rem] text-muted-foreground">
+          {hasTiming
+            ? `${formatDuration(clip.durationSec ?? 0)}`
+            : "no timing data"}
+        </span>{" "}
         {!clip.speakerLabel && (
           <span
             className="rounded-md border border-dashed border-border px-1.5 py-0.5 font-mono text-[0.65rem] text-muted-foreground"
@@ -105,11 +128,6 @@ export function ClipRow({
             no speaker
           </span>
         )}
-        <VoicePicker
-          label={clip.speakerLabel ?? "this clip"}
-          assignedVoiceName={clip.voiceName}
-          onSelect={onAssignVoice}
-        />
         {assigning && (
           <span className="font-mono text-[0.65rem] text-muted-foreground">
             assigning…
@@ -158,7 +176,9 @@ export function ClipRow({
                 },
               ])
             }
-            aria-label={clip.keep === true ? "Clear keep decision" : "Keep clip"}
+            aria-label={
+              clip.keep === true ? "Clear keep decision" : "Keep clip"
+            }
             className={cn(
               "flex size-7 items-center justify-center rounded-md border",
               clip.keep === true
@@ -200,6 +220,11 @@ export function ClipRow({
             onChange={(e) => setText(e.target.value)}
             onBlur={saveText}
             onKeyDown={(e) => {
+              /* The row itself is role="button" and treats a bare space as
+                 "activate" (see the wrapper's onKeyDown above) - without this,
+                 every space typed here would bubble up and get swallowed
+                 before it reached the textarea's value. */
+              e.stopPropagation();
               if (
                 e.key === "Enter" &&
                 !e.shiftKey &&
@@ -226,26 +251,6 @@ export function ClipRow({
             <Pencil className="mt-1 size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
           </button>
         )}
-      </div>
-      <div className="mt-2 flex items-center gap-2.5">
-        <button
-          type="button"
-          onClick={() => (playing ? onPauseVideo() : onPlayClip())}
-          disabled={!hasTiming}
-          aria-label={playing ? "Pause clip" : "Play clip in video"}
-          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {playing ? (
-            <Pause className="size-3.5" />
-          ) : (
-            <Play className="size-3.5 translate-x-px" />
-          )}
-        </button>
-        <span className="font-mono text-[0.7rem] text-muted-foreground">
-          {hasTiming
-            ? `plays from video · ${formatDuration(clip.durationSec ?? 0)}`
-            : "no timing data"}
-        </span>
       </div>
     </div>
   );

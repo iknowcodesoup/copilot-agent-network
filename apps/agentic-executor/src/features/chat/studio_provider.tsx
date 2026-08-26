@@ -31,6 +31,14 @@ interface StudioContextValue {
   setSelectedVoiceId: (id: string | null) => void;
   logFilter: string;
   setLogFilter: (key: string) => void;
+  /* A one-time jump target for ClipReviewPane, which otherwise keeps
+     selectedClipId as its own local state (see that component's docstring
+     for why). Setting this alongside view/selectedVideoId is how another tab
+     - the Voice tab's "edit" button - can land the reviewer on one specific
+     clip instead of just the video. ClipReviewPane clears it the moment it
+     reads it, so it never outlives that one jump. */
+  pendingClipId: string | null;
+  setPendingClipId: (id: string | null) => void;
 }
 
 const StudioContext = createContext<StudioContextValue | null>(null);
@@ -42,6 +50,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState("all");
+  const [pendingClipId, setPendingClipId] = useState<string | null>(null);
 
   /* Selection is keyed by video, since a freshly ingested video may have no
      run yet - two such videos both reduce to a null runId and would otherwise
@@ -69,6 +78,8 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       setSelectedVoiceId,
       logFilter,
       setLogFilter,
+      pendingClipId,
+      setPendingClipId,
     }),
     [
       view,
@@ -77,6 +88,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       selectedVideoId,
       selectedVoiceId,
       logFilter,
+      pendingClipId,
     ],
   );
   return (

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { useSpeakerBoard, useRenameVideo } from "./api/use_videos";
+import { useStudio } from "@/features/chat/studio_provider";
 import { RunActions } from "./run_actions";
 import { YoutubeEmbedPlayer, type VideoCue } from "./youtube_embed_player";
 import { ClipTrimBar } from "./clip_trim_bar";
@@ -86,6 +87,15 @@ export function ClipReviewPane({
     [board.data],
   );
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  /* A jump landed here from another tab (the Voice tab's edit button) names
+     one clip to select. Consumed once and cleared immediately, so a later
+     manual video switch never re-applies a stale target. */
+  const { pendingClipId, setPendingClipId } = useStudio();
+  useEffect(() => {
+    if (!pendingClipId) return;
+    setSelectedClipId(pendingClipId);
+    setPendingClipId(null);
+  }, [pendingClipId, setPendingClipId]);
   const activeClipId = selectedClipId ?? clips[0]?.clipId ?? null;
   const selectedClip =
     clips.find((clip) => clip.clipId === activeClipId) ?? null;
@@ -103,9 +113,10 @@ export function ClipReviewPane({
     action: VideoCue["action"],
     startSec = 0,
     endSec?: number,
+    resetSec?: number,
   ) => {
     cueCount.current += 1;
-    setVideoCue({ action, startSec, endSec, token: cueCount.current });
+    setVideoCue({ action, startSec, endSec, resetSec, token: cueCount.current });
   };
 
   /* Which clip is currently sourcing the video's audio, if any - cleared
@@ -113,6 +124,14 @@ export function ClipReviewPane({
      pause button, the clip's own end, or the operator scrubbing the video
      directly. */
   const [playingClipId, setPlayingClipId] = useState<string | null>(null);
+
+  /* The video's live position, and which clip it belongs to. Unlike
+     playingClipId, this is never cleared on pause - a paused position (or
+     one just reset to the selection's start) still names the clip whose
+     trim bar should show it. A clip whose own bounds have never been played
+     falls back to showing its own startSec instead (see ClipTrimBar). */
+  const [currentTimeSec, setCurrentTimeSec] = useState<number | null>(null);
+  const [timelineClipId, setTimelineClipId] = useState<string | null>(null);
 
   /* The preview is aimed at wherever the active clip now starts, not at
      wherever it started when it was picked. Selecting a clip moves that
@@ -146,8 +165,33 @@ export function ClipReviewPane({
         video={video}
         cue={videoCue}
         onPause={() => setPlayingClipId(null)}
+        onTimeUpdate={setCurrentTimeSec}
       />
-      <ClipTrimBar videoId={video.videoId} clip={selectedClip} />
+      <ClipTrimBar
+        videoId={video.videoId}
+        clip={selectedClip}
+        isPlaying={activeClipId != null && playingClipId === activeClipId}
+        currentTimeSec={
+          activeClipId != null && timelineClipId === activeClipId
+            ? currentTimeSec
+            : null
+        }
+        onPlayFrom={(startSec) => {
+          if (
+            !selectedClip?.clipId ||
+            selectedClip.startSec == null ||
+            selectedClip.endSec == null
+          )
+            return;
+          setPlayingClipId(selectedClip.clipId);
+          setTimelineClipId(selectedClip.clipId);
+          sendCue("play", startSec, selectedClip.endSec, selectedClip.startSec);
+        }}
+        onPauseVideo={() => {
+          setPlayingClipId(null);
+          sendCue("pause");
+        }}
+      />
       <ClipListPanel
         videoId={video.videoId}
         runId={run?.id ?? null}
@@ -156,8 +200,17 @@ export function ClipReviewPane({
         playingClipId={playingClipId}
         onPlayClip={(clip) => {
           if (clip.startSec == null || clip.endSec == null) return;
+          /* Resume from wherever this clip was left - paused mid-clip, or
+             scrubbed - rather than always restarting at startSec. Only valid
+             when the tracked position still belongs to this same clip; a
+             different clip's row falls back to its own start. */
+          const resumeSec =
+            timelineClipId === clip.clipId && currentTimeSec != null
+              ? currentTimeSec
+              : clip.startSec;
           setPlayingClipId(clip.clipId);
-          sendCue("play", clip.startSec, clip.endSec);
+          setTimelineClipId(clip.clipId);
+          sendCue("play", resumeSec, clip.endSec, clip.startSec);
         }}
         onPauseVideo={() => {
           setPlayingClipId(null);
