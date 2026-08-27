@@ -67,6 +67,46 @@ def test_get_voice_reports_404_for_an_unknown_id(voice_client):
     assert response.status_code == 404
 
 
+# --- rename ---------------------------------------------------------------
+
+
+def test_rename_voice_changes_the_name(voice_client):
+    created = voice_client.post("/api/voices", json={"name": "Picard"})
+    voice_id = created.json()["id"]
+
+    response = voice_client.patch(f"/api/voices/{voice_id}", json={"name": "Jean-Luc"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Jean-Luc"
+    assert voice_client.get(f"/api/voices/{voice_id}").json()["name"] == "Jean-Luc"
+
+
+def test_rename_voice_to_its_own_name_returns_200(voice_client):
+    created = voice_client.post("/api/voices", json={"name": "Picard"})
+    voice_id = created.json()["id"]
+
+    response = voice_client.patch(f"/api/voices/{voice_id}", json={"name": "Picard"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Picard"
+
+
+def test_rename_voice_rejects_a_name_another_voice_holds(voice_client):
+    voice_client.post("/api/voices", json={"name": "Picard"})
+    other = voice_client.post("/api/voices", json={"name": "Riker"})
+    other_id = other.json()["id"]
+
+    response = voice_client.patch(f"/api/voices/{other_id}", json={"name": "Picard"})
+
+    assert response.status_code == 409
+
+
+def test_rename_voice_reports_404_for_an_unknown_id(voice_client):
+    response = voice_client.patch("/api/voices/nope", json={"name": "Picard"})
+
+    assert response.status_code == 404
+
+
 # --- search ----------------------------------------------------------------
 
 

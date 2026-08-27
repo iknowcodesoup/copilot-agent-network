@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, X, Pencil, AudioLines, Pause, Play } from "lucide-react";
+import { Check, X, Pencil, AudioLines } from "lucide-react";
 import { VoicePicker } from "./voice_picker";
 import { cn } from "@/lib/utils";
 import type { StudioClip } from "./types";
 import { formatDuration } from "@/lib/format";
 import { useUpdateClips } from "./api/use_videos";
-import { AudioPlayerBar } from "./audio_player_bar";
+import { AudioPlayerBar, type ClipSeekCue } from "./audio_player_bar";
 import { clipAudioUrl } from "./api/query_keys";
 
 /*
@@ -34,6 +34,7 @@ export function ClipRow({
   onAssignVoice,
   assigning,
   playing,
+  seekCue,
   onPlayClip,
   onPauseVideo,
 }: {
@@ -52,6 +53,9 @@ export function ClipRow({
      The video is the only player now, so only one row can be "playing" at a
      time, and the row cannot know that on its own. */
   playing: boolean;
+  /* Where to move this row's WAV to, when the trim bar's cursor moved and
+     this is the clip it moved within. Null for every other row. */
+  seekCue?: ClipSeekCue | null;
   /* Plays this clip's range (startSec..endSec) through the video. The row
      has no audio of its own to play - the video's own track is the sound. */
   onPlayClip: () => void;
@@ -122,6 +126,7 @@ export function ClipRow({
             startSec: clip.startSec,
             endSec: clip.endSec,
           })}
+          seekCue={seekCue}
           onPlayAt={clip.startSec == null ? undefined : () => onPlayClip()}
           onStop={clip.startSec == null ? undefined : onPauseVideo}
         />

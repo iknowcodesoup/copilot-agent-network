@@ -155,6 +155,38 @@ async def get_voice(
     return voice
 
 
+@router.patch("/{voice_id}", response_model=Voice)
+async def rename_voice(
+    voice_id: str,
+    voice_request: VoiceRequest,
+    repository: VoiceRepository = Depends(get_required_voice_repository),
+    clip_repository: VoiceClipRepository = Depends(get_required_voice_clip_repository),
+    gateway: VoiceFactoryGateway | None = Depends(get_voice_factory_gateway),
+):
+    """Rename a voice.
+
+    A clip belongs to a voice by id, so the rename touches only this row -
+    every clip that shows the name reads it back resolved on the next fetch.
+    Names are unique (FR22), so a name another voice already holds is
+    rejected, the same as create_voice. Renaming a voice to its own name is a
+    no-op that still returns 200.
+    """
+    voice = await _load_voice(repository, voice_id)
+    if voice_request.name != voice.name:
+        clash = await repository.get_voice_by_name(voice_request.name)
+        if clash is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"A voice named {voice_request.name!r} already exists",
+            )
+        voice.name = voice_request.name
+        await repository.update_voice(voice)
+    voice.clips = await to_voice_clips(
+        await clip_repository.list_clips_for_voice(voice_id), gateway
+    )
+    return voice
+
+
 @router.post("/{voice_id}/clips", response_model=VoiceAssignResponse)
 async def assign_clips(
     voice_id: str,

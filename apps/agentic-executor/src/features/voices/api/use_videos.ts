@@ -65,18 +65,68 @@ export function useVideoSearch(query: string) {
    culling a group never disturbs the assignment that put it there. */
 export function useUpdateClips(videoId: string) {
   const queryClient = useQueryClient();
+  const speakersKey = voiceQueryKeys.speakers(videoId);
   return useMutation({
     mutationFn: (decisions: ClipDecision[]) =>
       request<ClipSummary[]>(`/videos/${videoId}/clips`, {
         method: "PATCH",
         body: jsonBody({ decisions }),
       }),
+    /* A trim writes its new start/end into the cache before the PATCH
+       resolves, not after. ClipTrimBar reads startSec/endSec straight off
+       the clip prop to size its loaded window (see its build effect), so a
+       reader that only learned the trim on onSuccess would see the old
+       bounds for the length of the round trip - long enough for a scroll or
+       another drag to catch the stale pair and rebuild the window around it,
+       which is what made a saved edit appear to revert. Scoped to
+       startSec/endSec, the one pair a trim decision sets together: a keep or
+       speakerLabel decision carries no such read-your-own-write requirement
+       and its onSuccess write below is the only one it needs. */
+    onMutate: async (decisions) => {
+      await queryClient.cancelQueries({ queryKey: speakersKey });
+      const previousBoard = queryClient.getQueryData<SpeakerBoard>(speakersKey);
+      const trims = new Map(
+        decisions
+          .filter(
+            (decision) => decision.startSec != null && decision.endSec != null,
+          )
+          .map((decision) => [
+            decision.clipId,
+            { startSec: decision.startSec, endSec: decision.endSec },
+          ]),
+      );
+      if (trims.size > 0) {
+        queryClient.setQueryData<SpeakerBoard>(
+          speakersKey,
+          (board) =>
+            board && {
+              ...board,
+              speakers: board.speakers.map((speaker) => ({
+                ...speaker,
+                clips: speaker.clips.map((clip) => {
+                  const trim = trims.get(clip.clipId);
+                  return trim ? Object.assign(clip, trim) : clip;
+                }),
+              })),
+            },
+        );
+      }
+      return { previousBoard };
+    },
+    /* Undo the optimistic trim - a failed PATCH must not leave the bar
+       showing bounds the server never accepted. */
+    onError: (_error, _decisions, context) => {
+      if (context?.previousBoard) {
+        queryClient.setQueryData(speakersKey, context.previousBoard);
+      }
+    },
     /* The response carries the clips as they now stand, so write them in
-       rather than asking for them again. */
+       rather than asking for them again. This is the authoritative
+       overwrite for every field, trims included. */
     onSuccess: (clips) => {
       const edited = new Map(clips.map((clip) => [clip.clipId, clip]));
       queryClient.setQueryData<SpeakerBoard>(
-        voiceQueryKeys.speakers(videoId),
+        speakersKey,
         (board) =>
           board && {
             ...board,

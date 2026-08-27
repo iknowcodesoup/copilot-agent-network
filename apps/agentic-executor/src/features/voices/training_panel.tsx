@@ -20,6 +20,7 @@ import {
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { clipAudioUrl } from "./api/query_keys";
+import { EditableVoiceName } from "./editable_voice_name";
 import type { VoiceClip, VoiceDetail } from "./types";
 
 /*
@@ -77,10 +78,13 @@ export function TrainingPanel({ voice }: { voice: VoiceDetail }) {
         <span className="flex size-9 items-center justify-center rounded-full bg-primary/15">
           <Cpu className="size-4 text-primary" />
         </span>
-        <div>
-          <h3 className="text-base font-semibold text-foreground">
-            {voice.name}
-          </h3>
+        <div className="min-w-0">
+          <EditableVoiceName
+            voiceId={voice.id}
+            name={voice.name}
+            className="-ml-1"
+            textClassName="text-base font-semibold text-foreground"
+          />
           <p className="font-mono text-xs text-muted-foreground">
             {keptClips.length} of {clips.length} clip
             {clips.length === 1 ? "" : "s"} will train · {videoCount} video
@@ -217,8 +221,9 @@ function ClipGroup({
    player is that a reviewer needs to hear what they are editing.
 
    Playback here is the clip's own audio slice, not the video - there is no
-   video pane on this tab. clipAudioUrl re-slices full.wav from review.csv,
-   so it always plays exactly what training would use. */
+   video pane on this tab. Passing the clip's bounds makes the factory slice
+   full.wav at exactly the window training will use; omit them and it falls
+   back to review.csv's original ingest cut and plays the pre-trim range. */
 function ClipLine({
   clip,
   playing,
@@ -252,7 +257,10 @@ function ClipLine({
     >
       <audio
         ref={audioRef}
-        src={clipAudioUrl(clip.videoId, clip.clipId)}
+        src={clipAudioUrl(clip.videoId, clip.clipId, {
+          startSec: clip.startSec,
+          endSec: clip.endSec,
+        })}
         preload="none"
         onEnded={onEnded}
       />

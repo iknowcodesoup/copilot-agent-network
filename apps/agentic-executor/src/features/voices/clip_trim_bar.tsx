@@ -141,7 +141,17 @@ export function ClipTrimBar({
      playback to there too if the video is already rolling - a still frame
      just parks the cursor for the next Play click. Held in a ref so the
      wavesurfer-build effect below never has to depend on isPlaying or
-     onPlayFrom, both of which change every tick while playing. */
+     onPlayFrom, both of which change every tick while playing.
+
+     wavesurfer's "interaction" event fires on every pointer-move of a drag,
+     not just on release, so redirecting the live video on each one reseeks
+     and replays it dozens of times per gesture - heard as the video
+     stopping and starting. The cursor still tracks the pointer instantly;
+     only the actual video redirect is debounced down to one call, after the
+     gesture settles. */
+  const repositionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const handleRepositionRef = useRef((_absSec: number) => {
     /* Replaced below before the waveform can ever call it - this only
        exists to give the ref an initial, correctly-typed function. */
@@ -150,31 +160,48 @@ export function ClipTrimBar({
     handleRepositionRef.current = (absSec: number) => {
       if (!clipId) return;
       setManualCursor({ clipId, sec: absSec });
-      if (isPlaying) onPlayFrom(absSec);
+      if (!isPlaying) return;
+      if (repositionDebounceRef.current)
+        clearTimeout(repositionDebounceRef.current);
+      repositionDebounceRef.current = setTimeout(() => {
+        onPlayFrom(absSec);
+      }, 200);
     };
   });
+  useEffect(() => {
+    return () => {
+      if (repositionDebounceRef.current)
+        clearTimeout(repositionDebounceRef.current);
+    };
+  }, []);
 
   /* An operator-driven request to show more than the default pad, either
      from releasing a handle near the loaded edge or from the wheel. Keyed
      on clipId so a leftover value from a previous clip is never mistaken
      for this one - switching clips (or video) falls back to the defaults
-     below with no reset effect of its own. */
-  const [extend, setExtend] = useState<{
-    clipId: string;
-    pad: number;
-    start: number;
-    end: number;
-  } | null>(null);
+     below with no reset effect of its own.
+
+     Only the pad lives here, never a frozen copy of start/end: this effect
+     already reads startSec/endSec straight off the clip prop below, and a
+     second copy of the same bounds is exactly what let them drift apart -
+     an edge-hit save would freeze the bounds at that instant, a later save
+     that didn't hit an edge would update the prop but not the copy, and the
+     next pad change (a fresh edge hit, or the wheel) would then rebuild the
+     window around the stale copy and visibly undo the second save. Reading
+     the prop fresh at every rebuild is what onMutate in useUpdateClips is
+     for - it lands the new bounds in the cache before the PATCH resolves,
+     so they are already current by the time a pad change triggers this
+     effect again. */
+  const [extend, setExtend] = useState<{ clipId: string; pad: number } | null>(
+    null,
+  );
   const pad = extend?.clipId === clipId ? extend.pad : MIN_PAD_SEC;
 
   useEffect(() => {
     if (!containerRef.current || !clipId || startSec == null || endSec == null)
       return;
 
-    const requestBounds =
-      extend?.clipId === clipId
-        ? { start: extend.start, end: extend.end }
-        : { start: startSec, end: endSec };
+    const requestBounds = { start: startSec, end: endSec };
     const effectivePad = extend?.clipId === clipId ? extend.pad : MIN_PAD_SEC;
     const windowStart = Math.max(0, requestBounds.start - effectivePad);
 
@@ -240,14 +267,16 @@ export function ClipTrimBar({
        which is what makes playback follow the trim on its own.
 
        A release that lands near either edge of the loaded window widens the
-       pad and re-centers on that release, which is what lets the operator
-       grab the handle again and keep extending - each repeated edge hit
-       compounds the pad (nextEdgePad) rather than jumping straight to the
-       server's max, so a clip that only needed a little more context does
-       not fetch minutes of audio for it. Widening mid-drag instead would
-       swap the audio buffer under an active pointer capture the regions
-       plugin still has bound to the region it just replaced, so this only
-       ever triggers on the settled position. */
+       pad, which is what lets the operator grab the handle again and keep
+       extending - each repeated edge hit compounds the pad (nextEdgePad)
+       rather than jumping straight to the server's max, so a clip that only
+       needed a little more context does not fetch minutes of audio for it.
+       The rebuild this triggers re-centers on the release on its own: it
+       reads startSec/endSec straight off the clip prop, and useUpdateClips's
+       onMutate has already landed this save's bounds in the cache by then.
+       Widening mid-drag instead would swap the audio buffer under an active
+       pointer capture the regions plugin still has bound to the region it
+       just replaced, so this only ever triggers on the settled position. */
     regions.on("region-updated", (region) => {
       setTimeout(() => {
         resizedRecently = false;
@@ -261,12 +290,7 @@ export function ClipTrimBar({
         windowStart > 0 && absStart - windowStart <= EDGE_THRESHOLD_SEC;
       const nearEnd = loadedEnd - absEnd <= EDGE_THRESHOLD_SEC;
       if (nearStart || nearEnd) {
-        setExtend({
-          clipId,
-          pad: nextEdgePad(effectivePad),
-          start: absStart,
-          end: absEnd,
-        });
+        setExtend({ clipId, pad: nextEdgePad(effectivePad) });
       }
     });
 
@@ -293,10 +317,6 @@ export function ClipTrimBar({
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const current = extend?.clipId === clipId ? extend.pad : MIN_PAD_SEC;
-      const base =
-        extend?.clipId === clipId
-          ? { start: extend.start, end: extend.end }
-          : { start: startSec, end: endSec };
       const next = Math.min(
         MAX_PAD_SEC,
         Math.max(
@@ -306,7 +326,7 @@ export function ClipTrimBar({
           ),
         ),
       );
-      if (next !== current) setExtend({ clipId, pad: next, ...base });
+      if (next !== current) setExtend({ clipId, pad: next });
     };
 
     container.addEventListener("wheel", onWheel, { passive: false });

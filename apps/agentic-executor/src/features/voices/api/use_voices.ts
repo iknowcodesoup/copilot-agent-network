@@ -51,6 +51,37 @@ export function useCreateVoice() {
   });
 }
 
+/* Rename a voice. A clip joins a voice by id, so the rename touches only this
+   row - every clip that shows the name reads it back resolved on the next
+   fetch. Names are unique (FR22), so the caller handles a 409 as a name
+   another voice already holds. */
+export function useRenameVoice(voiceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      request<VoiceDetail>(
+        `/${voiceId}`,
+        { method: "PATCH", body: jsonBody({ name }) },
+        voicesApiBase,
+      ),
+    /* PATCH answers with the renamed voice, so the caches that hold it take it
+       as given. The speaker boards resolve each clip's voice name server-side,
+       so they are stale after a rename and have to be refetched. */
+    onSuccess: (voice) => {
+      queryClient.setQueryData<VoiceDetail[]>(
+        voiceQueryKeys.voiceList,
+        (voices) =>
+          voices?.map((existing) =>
+            existing.id === voice.id ? voice : existing,
+          ),
+      );
+      queryClient.setQueryData(voiceQueryKeys.voiceDetail(voice.id), voice);
+      queryClient.invalidateQueries({ queryKey: ["voice", "voices"] });
+      queryClient.invalidateQueries({ queryKey: ["voice", "videos"] });
+    },
+  });
+}
+
 /* Every voice, for the Voices view's card grid. limit=50 is the route's max,
    and an empty query matches everything, the same contract useVoices relies
    on for the picker.

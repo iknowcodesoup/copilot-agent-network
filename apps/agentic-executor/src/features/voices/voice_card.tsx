@@ -4,6 +4,7 @@ import { Mic, AudioLines, Clapperboard, Clock } from "lucide-react";
 import { StatusPill } from "./status_pill";
 import { cn } from "@/lib/utils";
 import { formatTotalDuration } from "@/lib/format";
+import { EditableVoiceName } from "./editable_voice_name";
 import type { VoiceDetail } from "./types";
 
 /*
@@ -36,11 +37,21 @@ export function VoiceCard({
   const videoCount = new Set(voice.clips.map((clip) => clip.videoId)).size;
   const active = voice.phase === "training";
   return (
-    <button
-      type="button"
+    /* A div, not a button: EditableVoiceName nests its own button here, and a
+       button inside a button is invalid markup browsers resolve
+       unpredictably. Same reason VideoCard is a div. */
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
       className={cn(
-        "flex flex-col gap-2.5 rounded-xl border bg-card p-3.5 text-left",
+        "flex cursor-pointer flex-col gap-2.5 rounded-xl border bg-card p-3.5 text-left",
         selected
           ? "border-primary/60 ring-1 ring-primary/40"
           : "border-border hover:border-primary/30",
@@ -50,9 +61,12 @@ export function VoiceCard({
         <span className="flex size-7 items-center justify-center rounded-full bg-primary/15">
           <Mic className="size-3.5 text-primary" />
         </span>
-        <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-          {voice.name}
-        </h3>
+        <EditableVoiceName
+          voiceId={voice.id}
+          name={voice.name}
+          className="flex-1"
+          textClassName="text-sm font-medium text-foreground"
+        />
         <StatusPill
           tone={
             active
@@ -85,6 +99,6 @@ export function VoiceCard({
           </>
         )}
       </div>
-    </button>
+    </div>
   );
 }

@@ -1,9 +1,8 @@
 "use client";
 
-import { RotateCcw, Trash2 } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDeleteRun, useRetryRun } from "./api/use_voice_runs";
-import { useStudio } from "@/features/chat/studio_provider";
 import type { VoiceRun } from "./types";
 
 /*
@@ -19,7 +18,6 @@ import type { VoiceRun } from "./types";
 export function RunActions({ run }: { run: VoiceRun }) {
   const retryRun = useRetryRun(run.id);
   const deleteRun = useDeleteRun();
-  const { setSelectedRunId } = useStudio();
   const busy = retryRun.isPending || deleteRun.isPending;
 
   return (

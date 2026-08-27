@@ -7,6 +7,20 @@
 # production image (a Next.js standalone bundle with no package.json, no
 # pnpm-workspace.yaml, and no lockfile).
 services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      web:
+        condition: service_started
+      pythonapi:
+        condition: service_started
+
   web:
     image: copilot_agent_network-web-dev
     build:
@@ -25,8 +39,12 @@ services:
         "--port",
         "3000",
       ]
-    ports:
-      - "4001:3000"
+    # No published port: nginx is the only public entry point. Keep this
+    # commented pair for direct-to-Next debugging without touching nginx.
+    # ports:
+    #   - "4001:3000"
+    expose:
+      - "3000"
     # `next dev` reads NEXT_PUBLIC_* per request, so no build arg is needed.
     # A later file wins, so `.env.local` overrides the production `.env`.
     env_file:

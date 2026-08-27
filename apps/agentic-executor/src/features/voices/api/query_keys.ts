@@ -20,11 +20,13 @@ export const voiceQueryKeys = {
 /* Which slice of the video the audio route should answer with.
 
    padSec widens the window past the clip's own bounds - the trim bar uses
-   it to show the surrounding audio a clipped word onset hides in; row
-   playback leaves it off to hear exactly what review.csv would commit.
+   it to show the surrounding audio a clipped word onset hides in; row and
+   voice-tab playback leave it off to hear exactly what training would use.
 
-   startSec/endSec name the bounds the slice is cut at. The route never reads
-   them - see clipAudioUrl below for why they are sent anyway. */
+   startSec/endSec name the bounds the slice is cut at. The route reads them:
+   given, they win; omitted, the factory falls back to review.csv, which
+   holds the original ingest cut and never the reviewer's trim. A caller
+   that knows the clip's current bounds must send them - see clipAudioUrl. */
 export interface ClipAudioWindow {
   padSec?: number;
   startSec?: number | null;
@@ -33,15 +35,17 @@ export interface ClipAudioWindow {
 
 /* Keyed on the video, so playing a clip never depends on a run lookup.
 
-   The bounds ride in the query string although the route ignores them: it
-   re-slices full.wav from review.csv on every call, so a trim changes the
-   bytes this URL answers with while the URL itself stays the same. An
-   <audio> element that already loaded the old slice then sees no attribute
-   change and keeps it, and the browser cache can hand it back again. Naming
-   the bounds makes every trim a new resource, which is what lets playback
-   follow the edit with no reload and no save button. The trim bar sends no
-   bounds on purpose - a stable URL is what stops its own save from tearing
-   down the waveform under the pointer. */
+   Always pass the clip's current bounds. The factory route slices full.wav
+   at them; omit them and it falls back to review.csv's ingest bounds, which
+   a trim never updates - the trim is written to Postgres, not back to the
+   csv. Sending the bounds also lets playback follow an edit with no reload:
+   a new bounds string is a new URL, so an <audio> element that already
+   loaded the old slice refetches rather than replaying it from cache.
+
+   The trim bar captures its bounds once per clip and rebuilds the waveform
+   only on clip identity or an explicit widen, never on its own save - that,
+   not a stable URL, is what stops a trim from tearing the waveform down
+   under the pointer. */
 export function clipAudioUrl(
   videoId: string,
   clipId: string,
