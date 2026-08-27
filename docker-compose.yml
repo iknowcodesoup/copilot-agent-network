@@ -1,4 +1,18 @@
 services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      web:
+        condition: service_started
+      pythonapi:
+        condition: service_started
+
   web:
     build:
       context: .
@@ -7,7 +21,11 @@ services:
         # Next inlines NEXT_PUBLIC_* at build time, so it must be a build arg.
         # project.json passes the app's env file to `--env-file`, because an
         # `env_file:` entry is not visible to interpolation.
-        NEXT_PUBLIC_PYTHON_API_URL: ${NEXT_PUBLIC_PYTHON_API_URL:-http://localhost:8000}
+        #
+        # `${VAR-default}` (one dash), not `${VAR:-default}` (two dashes):
+        # the two-dash form substitutes on empty too, which would silently
+        # replace the "" that means same-origin with the localhost fallback.
+        NEXT_PUBLIC_PYTHON_API_URL: ${NEXT_PUBLIC_PYTHON_API_URL-http://localhost:8000}
     # A later file wins, so `.env.local` overrides the production `.env`.
     # No file is required: the app falls back to its own defaults.
     env_file:
@@ -15,8 +33,12 @@ services:
         required: false
       - path: apps/agentic-executor/.env.local
         required: false
-    ports:
-      - "4001:3000"
+    # No published port: nginx is the only public entry point. Keep this
+    # commented pair for direct-to-Next debugging without touching nginx.
+    # ports:
+    #   - "4001:3000"
+    expose:
+      - "3000"
     depends_on:
       pythonapi:
         condition: service_started

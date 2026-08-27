@@ -53,8 +53,12 @@ Postgres, and routes every model call through LiteLLM.
 
 ## Architecture
 
-The browser talks to FastAPI directly. There is no CopilotKit runtime and no
-Next.js proxy route in between.
+The browser talks to FastAPI directly - no CopilotKit runtime, no Next.js
+proxy route. An nginx container terminates TLS and puts both apps behind one
+HTTPS origin, splitting on path (`/api/*` to FastAPI, everything else to
+Next.js). That is what lets `AGENT`'s `HttpAgent` call FastAPI with a plain
+relative URL: same-origin, so no CORS and no mixed content between an https
+page and an http API. See `infra/nginx/nginx.conf`.
 
 ```mermaid
 flowchart LR
@@ -62,11 +66,13 @@ flowchart LR
         UI[CopilotChat v2]
         AGENT[HttpAgent]
     end
+    NGINX["nginx :443<br/>TLS termination"]
     subgraph FastAPI["pythonapi (:8000)"]
         ROUTE["/api/agent"]
         CHAT[run_chat_agent]
         RAG[RagPipeline]
     end
+    NEXT["web :3000<br/>Next.js"]
     subgraph Data
         QD[(Qdrant)]
         PG[(Postgres)]
@@ -77,7 +83,9 @@ flowchart LR
     LF[Langfuse :4002]
 
     UI --> AGENT
-    AGENT -->|AG-UI over SSE| ROUTE
+    AGENT -->|AG-UI over SSE, same origin| NGINX
+    NGINX -->|"/api/*"| ROUTE
+    NGINX -->|"/*"| NEXT
     ROUTE --> CHAT
     CHAT --> RAG
     RAG --> QD
@@ -98,6 +106,10 @@ flowchart LR
   provider directly.
 - Qdrant holds chunk vectors only. Postgres holds all document, chunk, and
   order metadata.
+- `NEXT_PUBLIC_PYTHON_API_URL` is empty by default (see the front end's
+  `.env.example`). Empty means "same origin as the page", which only resolves
+  correctly behind the nginx proxy. Set it to a full URL only when running
+  the API on a genuinely separate origin - direct port access, no proxy.
 
 ---
 
@@ -125,7 +137,7 @@ flowchart LR
 
 ```
 apps/
-├── agentic-executor/            # Next.js 16 front end (port 4001)
+├── agentic-executor/            # Next.js 16 front end (internal :3000, behind nginx)
 │   ├── specs/                   # Jest component tests
 │   └── src/
 │       ├── app/                 # routes ONLY
@@ -322,8 +334,33 @@ pnpm add -w <package>                    # JS/TS at the root
 nx add pythonapi --name <package>        # Python, updates uv.lock
 ```
 
-**Ports:** web 4001 · pythonapi 8000 · LiteLLM 4000 · Langfuse 4002 ·
-Qdrant 6333 · Redis 6379
+**Ports:** nginx 443/80 (the site - `nx up apps` publishes only this one) ·
+web 3000 · pythonapi 8000 · LiteLLM 4000 · Langfuse 4002 · Qdrant 6333 ·
+Redis 6379
+
+### HTTPS (local / LAN)
+
+`https://10.0.0.14` (or `https://localhost`) is the whole site: nginx
+terminates TLS and reverse-proxies `/api/*` to pythonapi and everything else
+to web. See [Architecture](#architecture) for why both apps have to share one
+origin, and `infra/nginx/nginx.conf` for the proxy rules.
+
+The cert is a [mkcert](https://github.com/FiloSottile/mkcert) leaf,
+regenerated with `infra/nginx/make-certs.ps1`. It is gitignored
+(`infra/nginx/certs/`) because it is a machine-local dev artifact, not a
+secret meant to travel with the repo.
+
+- **First time on this machine:** `winget install FiloSottile.mkcert` then
+  `mkcert -install`. That trusts mkcert's root CA in the Windows and browser
+  trust stores, so the generated cert shows no warning here.
+- **A second device on the LAN** (phone, another laptop) still sees a
+  warning until it trusts the same root CA - there is no way around this for
+  a bare LAN IP, only a real domain with a publicly trusted CA (Let's
+  Encrypt) skips it. Copy `rootCA.pem` from `mkcert -CAROOT` on this machine
+  to the other device and install it there. Never copy `rootCA-key.pem` -
+  that is the private key that makes the CA trustworthy in the first place.
+- **If the LAN IP changes:** edit the `Hosts` default in
+  `infra/nginx/make-certs.ps1` and rerun it.
 
 ---
 

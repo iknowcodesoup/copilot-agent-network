@@ -9,8 +9,6 @@ import { YoutubeEmbedPlayer, type VideoCue } from "./youtube_embed_player";
 import { ClipTrimBar } from "./clip_trim_bar";
 import { ClipListPanel } from "./clip_list_panel";
 import type { VideoSummary, VoiceRun } from "./types";
-import { StatusPill } from "./status_pill";
-import { toneForPhase } from "./derive";
 
 /* Click the title to correct it. The factory owns the name - it lives in
    meta.json beside the clips - so the rename is visible to every character
@@ -101,7 +99,6 @@ export function ClipReviewPane({
   const activeClipId = selectedClipId ?? clips[0]?.clipId ?? null;
   const selectedClip =
     clips.find((clip) => clip.clipId === activeClipId) ?? null;
-  const watchUrl = video.url ?? run?.sourceUrl ?? null;
 
   /* Every instruction to the player goes through this one cue, so it has a
      single caller and no second source of truth about where the video
@@ -132,6 +129,37 @@ export function ClipReviewPane({
      pause button, the clip's own end, or the operator scrubbing the video
      directly. */
   const [playingClipId, setPlayingClipId] = useState<string | null>(null);
+
+  /* The row's clip WAV is a second player, with its own position and no way
+     to learn about a trim bar click on its own - it has no scrubber, and the
+     video cue below never reaches it. This carries that position across, as
+     an offset into the WAV: the row's audio URL sends no pad, so the WAV
+     starts at the clip's own startSec and t=0 is that same instant.
+
+     Tokened for the reason the video cue is - clicking one spot twice must
+     seek twice, and a value-equal prop would sit dormant the second time. */
+  const [clipSeek, setClipSeek] = useState<{
+    clipId: string;
+    offsetSec: number;
+    token: number;
+  } | null>(null);
+  const clipSeekCount = useRef(0);
+  const sendClipSeek = (
+    clip: { clipId: string; startSec: number; endSec: number },
+    absSec: number,
+  ) => {
+    clipSeekCount.current += 1;
+    setClipSeek({
+      clipId: clip.clipId,
+      /* The trim bar shows padding either side of the clip, so a click can
+         land outside what the WAV actually covers. */
+      offsetSec: Math.min(
+        Math.max(0, absSec - clip.startSec),
+        clip.endSec - clip.startSec,
+      ),
+      token: clipSeekCount.current,
+    });
+  };
 
   /* The video's live position, and which clip it belongs to. Unlike
      playingClipId, this is never cleared on pause - a paused position (or
@@ -198,6 +226,17 @@ export function ClipReviewPane({
           setPlayingClipId(selectedClip.clipId);
           setTimelineClipId(selectedClip.clipId);
           sendCue("play", startSec, selectedClip.endSec, selectedClip.startSec);
+          /* The video and the WAV are two players at one position. Moving
+             only the video is what left the WAV playing on, deaf to the
+             click that had just moved everything else. */
+          sendClipSeek(
+            {
+              clipId: selectedClip.clipId,
+              startSec: selectedClip.startSec,
+              endSec: selectedClip.endSec,
+            },
+            startSec,
+          );
         }}
         onPauseVideo={() => {
           setPlayingClipId(null);
@@ -210,17 +249,17 @@ export function ClipReviewPane({
         selectedClipId={activeClipId}
         onSelectClip={setSelectedClipId}
         playingClipId={playingClipId}
+        clipSeek={clipSeek}
         onPlayClip={(clip) => {
           if (clip.startSec == null || clip.endSec == null) return;
           /* Resume from wherever this clip was left - paused mid-clip, or
              scrubbed - rather than always restarting at startSec. Only valid
              when the tracked position still belongs to this same clip; a
              different clip's row falls back to its own start. */
-          const resumeSec = clip.startSec;
-          timelineClipId === clip.clipId && currentTimeSec != null
-            ? currentTimeSec
-            : clip.startSec;
-          console.debug("resumeSec", currentTimeSec, clip.startSec);
+          const resumeSec =
+            timelineClipId === clip.clipId && currentTimeSec != null
+              ? currentTimeSec
+              : clip.startSec;
           setPlayingClipId(clip.clipId);
           setTimelineClipId(clip.clipId);
           sendCue("play", resumeSec, clip.endSec, clip.startSec);

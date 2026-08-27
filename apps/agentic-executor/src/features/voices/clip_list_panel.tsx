@@ -5,6 +5,7 @@ import { useSpeakerBoard } from "./api/use_videos";
 import { useAssignClips } from "./api/use_voices";
 import { cn } from "@/lib/utils";
 import { ClipRow } from "./clip_row";
+import type { ClipSeekCue } from "./audio_player_bar";
 import { reviewLabel, reviewStatus, toneForReviewStatus } from "./derive";
 import { StatusPill } from "./status_pill";
 import type { StudioClip } from "./types";
@@ -22,6 +23,7 @@ export function ClipListPanel({
   selectedClipId,
   onSelectClip,
   playingClipId,
+  clipSeek,
   onPlayClip,
   onPauseVideo,
 }: {
@@ -32,6 +34,9 @@ export function ClipListPanel({
   /* Which clip is currently sourcing the video's audio, if any. Only one row
      can be "playing" at a time - the video is the only player now. */
   playingClipId: string | null;
+  /* A position for one named clip's WAV, from the trim bar. Handed to that
+     row alone; every other row is left where it was. */
+  clipSeek: (ClipSeekCue & { clipId: string }) | null;
   /* Passed straight through to every row, which plays that clip's own
      startSec..endSec range through the video. This panel knows nothing
      about the preview. */
@@ -161,6 +166,7 @@ export function ClipListPanel({
               }
               assigning={pendingClipIds.has(clip.clipId)}
               playing={playingClipId === clip.clipId}
+              seekCue={clipSeek?.clipId === clip.clipId ? clipSeek : null}
               onPlayClip={() => onPlayClip(studioClip)}
               onPauseVideo={onPauseVideo}
             />
