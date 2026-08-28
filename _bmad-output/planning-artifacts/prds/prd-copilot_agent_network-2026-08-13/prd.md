@@ -2,10 +2,19 @@
 title: copilot_agent_network
 status: final
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-08-27
 ---
 
 # PRD: copilot_agent_network
+
+> **Reconciled 2026-08-27.** The code moved past this plan. §4.4 and §4.5
+> shipped on a clip-based assignment model, not the run-based
+> `assign`/`commit`/`voice_contributions` model first written here and
+> flattened on 2026-08-16. FR-5 was dropped. A multi-agent A2A network and a
+> factory-source-of-truth change shipped without a plan and are recorded as
+> §4.6 and §4.7. Every changed requirement carries a dated `[DELIVERED]`,
+> `[SUPERSEDED]`, or `[OUT OF SCOPE]` tag. Full record:
+> `sprint-change-proposal-2026-08-27.md`.
 
 ## 0. Document Purpose
 
@@ -30,30 +39,38 @@ This PRD covers the next increment of that demonstration: closing the agent's to
 
 - **UJ-1. An evaluator asks the agent to open a specific run, and it does.** A technical evaluator is on the Voices dashboard with several ingestion runs visible. They ask the chat agent, in the sidebar, to "open the run for the latest video." The agent — via the AG-UI tool-calling loop and a registered `useFrontendTool` — expands that run's card in the browser, without a page reload or the user clicking anything themselves. The evaluator now sees the agent has literally reached into the UI, not just replied in text. Realizes FR-1 through FR-6, FR-10.
 - **UJ-2. The same evaluator asks a state-dependent question and gets a state-aware answer.** With a run expanded, the evaluator asks "what can I do with this run right now?" The agent answers based on the run's actual ingestion phase (via `useAgentContext`), not a generic capability list — and if they collapse the card, the agent stops referencing that run's detail. Realizes FR-7 through FR-9, FR-11.
-- **UJ-3. The operator builds one voice from two videos.** The operator ingests a video, reviews its detected speaker clips, and assigns two speakers to an existing voice named "Picard" without starting training. They ingest a second video days later, assign one more speaker to the same "Picard" voice, then commit both assignments together. Training on "Picard" now draws on clips from both videos. The operator later opens the Voices view and sees "Picard" with both contributing videos listed. Realizes FR-16 through FR-22, FR-25 through FR-27.
+- **UJ-3. The operator builds one voice from two videos.** The operator ingests a video, reviews its detected speaker clips, and assigns one speaker's clips to an existing voice named "Picard". Assigning the first clips starts Picard's training. They ingest a second video days later and assign one more speaker's clips to the same "Picard" voice; its next training pass draws on clips from both videos. The operator opens the Voices view and sees "Picard" with a clip count and a source-video count of two. Realizes FR-16 through FR-22, FR-25 through FR-27. `[UPDATED 2026-08-27 — clip-based, no separate commit step, no "contributing videos" popover; see sprint-change-proposal-2026-08-27.md]`
 - **UJ-4. Re-ingesting a video for a second character costs nothing extra.** The operator has already ingested a video for one character. They start ingestion again, targeting a second character. Because the video was already downloaded, transcribed, and diarized, the second pass reuses those cached artifacts and jumps straight to speaker assignment. Realizes FR-12 through FR-15.
 
 ## 3. Glossary
 
-- **Run** — one video's ingestion lifecycle instance, tracked through `ingest_phase` (`DOWNLOADING` → `DIARIZING` → `AWAITING_REVIEW` → `COMMITTED`).
+- **Run** — one video's ingestion lifecycle instance, tracked through `phase`. `[SUPERSEDED 2026-08-27]` Shipped phases are `DOWNLOADING` → `DIARIZING` → `INGESTED` → `FAILED`. Review is not a phase — a video stays in review until every clip has a keep/exclude decision. There is no `AWAITING_REVIEW` and no `COMMITTED`.
 - **Video** — the unit of ingestion: one YouTube source, downloaded/transcribed/diarized once and reusable across characters/voices via cached artifacts keyed by video ID.
-- **Voice** — a durable entity (name, training `phase`, `checkpoint_path`) that one or more videos can contribute clips to over time. Distinct from a Run, though tracked on a separate table: a Run reaching `COMMITTED` moves its assigned Voice(s) to `TRAINING` in the same call `[UPDATED 2026-08-16]`.
-- **Voice Contribution** — one immutable record of a (voice, run, speaker) triple, created on assignment `[UPDATED 2026-08-16, was: "on commit"]`. Never updated in place; the audit trail of what fed a voice's training.
+- **Voice** — a durable entity (name, training `phase`, `checkpoint_path`) that holds clips assigned to it from any number of videos over time. Distinct from a Run and tracked on a separate table. `[SUPERSEDED 2026-08-27]` Neither state machine drives the other: assigning clips to a Voice changes no Run phase, and a Run reaching `INGESTED` changes no Voice phase.
+- **Clip assignment** — `[NEW 2026-08-27, replaces "Voice Contribution"]` a clip belongs to at most one Voice, recorded on the `voice_clips` row. The clip and its audio are never mutated; reassigning overwrites the one field. This is the audit trail of what feeds a Voice.
+- **Voice Contribution** — `[SUPERSEDED 2026-08-27]` Never shipped. The `(voice, run, speaker)` triple and the `voice_contributions` table were designed on 2026-08-16 and dropped. Retained here only for reading pre-2026-08-27 artifacts. See **Clip assignment**.
 - **Speaker** — a diarized voice detected within one video, identified by a label, prior to assignment to a Voice.
-- **Assign** — associating a video's detected speaker with a Voice. `[UPDATED 2026-08-16]` This now commits immediately: it writes the Voice Contribution record(s) and advances the Run's `ingest_phase` to `COMMITTED` in the same call. There is no longer a separate, reversible pre-commit state.
-- **Commit** — `[SUPERSEDED 2026-08-16]` No longer a separate operation. Assigning a speaker to a Voice now commits it immediately (see **Assign**); the term is retained here only for reading pre-2026-08-16 artifacts.
-- **Ingest Phase** — a Run's state: `DOWNLOADING`, `DIARIZING`, `AWAITING_REVIEW`, `COMMITTED`.
-- **Voice Phase** — a Voice's training state: `AWAITING_COMMIT`, `TRAINING`, `EXPORTING`, `READY`, `FAILED`.
+- **Assign** — `[SUPERSEDED 2026-08-27]` assigning a video's clips to a Voice via `POST /voices/{id}/clips`. Picking a speaker in the UI sends that speaker's whole clip list; a later per-clip correction sends one clip ID. It touches no Run phase. Assigning the first clips to a Voice starts its training.
+- **Commit** — `[SUPERSEDED 2026-08-16, gone 2026-08-27]` Never a separate operation in shipped code. Retained only for reading old artifacts.
+- **Ingest Phase / Run Phase** — a Run's state: `DOWNLOADING`, `DIARIZING`, `INGESTED`, `FAILED` `[SUPERSEDED 2026-08-27]`.
+- **Voice Phase** — a Voice's training state: `AWAITING_COMMIT`, `COMPILING`, `TRAINING`, `EXPORTING`, `READY`, `FAILED`. `COMPILING` gathers every kept clip assigned to the Voice, across every video, at training start.
 - **AG-UI** — the SSE-based protocol carrying agent run events (including tool-call events) between the FastAPI service and the browser.
 - **Frontend Tool** — an agent-callable capability registered in the browser via CopilotKit's `useFrontendTool`, for cheap/reversible UI actions (e.g., expanding a run).
 - **Agent Context** — read-only state published to the agent from the browser via `useAgentContext` (e.g., which run is expanded, which actions are legal in the current phase).
-- **Tool Loop** — the backend mechanism (in `core/chat_agent.py`) that forwards registered tool definitions to the model, streams back ordered `ToolCall*` AG-UI events, and ends the run so the browser can execute the tool and resume with a follow-up run.
+- **Tool Loop** — the backend mechanism that forwards registered tool definitions to the model, streams back ordered `ToolCall*` AG-UI events, and ends the run so the browser can execute the tool and resume with a follow-up run. `[SUPERSEDED 2026-08-27]` Lives in `agents/orchestrator/chat_agent.py`, not `core/chat_agent.py` — moved into the multi-agent A2A build (§4.6).
+- **A2A** — `[NEW 2026-08-27]` the agent-to-agent protocol the Orchestrator uses to reach the Research Agent and the Voice Agent. See §4.6.
+- **ARD** — `[NEW 2026-08-27]` Agentic Resource Discovery: the catalog spec the Orchestrator uses to discover each specialist's skills from its published Agent Card. See §4.6.
 
 ## 4. Features
 
 ### 4.1 Agent Tool-Calling Loop
 
 **Description:** The backend half of closing the AG-UI tool loop. Today, a tool a browser registers is invisible to the model — the completion call never passes `tools=` and never emits a `ToolCall*` event. This feature makes the agent forward tool definitions to the model, stream back a correctly ordered tool-call event sequence, end the run so the browser can execute the tool, and resume cleanly on the follow-up run the browser sends back. Source: `spec-agui-tool-loop`. Realizes UJ-1, UJ-2 (as their enabling infrastructure).
+
+> `[DELIVERED 2026-08-27]` Shipped inside the multi-agent A2A build (§4.6).
+> The loop lives in `agents/orchestrator/chat_agent.py`, not `core/chat_agent.py`.
+> FR-1, FR-2, FR-3, FR-4, FR-6 delivered as written; `test_agent_tools.py`
+> covers them. FR-5 dropped — see below.
 
 **Functional Requirements:**
 
@@ -77,7 +94,14 @@ After tool calls are emitted, the server issues `RunFinishedEvent` and takes no 
 `TextMessageStartEvent` fires only on the first non-empty content delta. A tool-only turn opens no empty text message; a turn with both text and a tool call opens exactly one text message.
 
 #### FR-5: Runaway tool-calling is capped
-A model that keeps calling tools without producing a final answer is capped by `LLM_MAX_TOOL_TURNS` (a `Settings` field with a real, non-`None` default per this project's configuration convention): a tool-calling turn count derived statelessly from `agent_input.messages` is allowed through at the limit and blocked past it — once the count exceeds `LLM_MAX_TOOL_TURNS`, the server forces a text answer instead of permitting another tool call.
+`[OUT OF SCOPE — 2026-08-27]` Not implemented, and no longer applicable. The
+Orchestrator agent emits tool calls and ends the run (FR-3); it never loops
+server-side waiting on a tool result, so there is no server-side turn count to
+cap. `LLM_MAX_TOOL_TURNS` was never added to `Settings`. A cap, if wanted,
+belongs on the browser (CopilotKit v2) follow-up loop and is a new item, not
+this one. See `sprint-change-proposal-2026-08-27.md`.
+
+~~A model that keeps calling tools without producing a final answer is capped by `LLM_MAX_TOOL_TURNS` (a `Settings` field with a real, non-`None` default per this project's configuration convention): a tool-calling turn count derived statelessly from `agent_input.messages` is allowed through at the limit and blocked past it — once the count exceeds `LLM_MAX_TOOL_TURNS`, the server forces a text answer instead of permitting another tool call.~~
 
 #### FR-6: Documentation matches behavior
 The `chat_agent.py` module docstring, which currently states tools are unsupported, is rewritten to match the new behavior.
@@ -93,6 +117,15 @@ The `chat_agent.py` module docstring, which currently states tools are unsupport
 ### 4.2 CopilotKit Hook Surface
 
 **Description:** The frontend half of the same loop: wires the Voices dashboard's CopilotKit v2 hooks so the agent can perceive what's on screen and take cheap, reversible actions on the user's behalf, instead of only reading a static run-list summary. Depends on 4.1 shipping first — no frontend tool call works until the backend forwards tool definitions. The trade-off: every piece of on-screen state the agent needs to reach now requires a maintained `useAgentContext`/`useFrontendTool` pair, a second surface that has to keep tracking the UI as it evolves, not just the UI itself. Source: `spec-copilotkit-hook-surface`. Realizes UJ-1, UJ-2.
+
+> `[DELIVERED 2026-08-27]` `features/chat/copilot_tools.tsx` registers the
+> hook surface with `@copilotkit/react-core/v2`: `useAgentContext` payloads
+> (current view/selection, every run, every voice, the selected video's
+> clips), `useFrontendTool` for `addVideo`, `keepClips`, `discardClips`,
+> `assignSpeaker`, `startTraining`, and a static `useConfigureSuggestions`.
+> FR-7 through FR-11 satisfied. The Phase-2 tool inventory (below) is
+> resolved by this file. The `useAgent` status indicator (§4.2 Notes) is
+> not built.
 
 **Functional Requirements:**
 
@@ -122,7 +155,7 @@ One `useFrontendTool` lets the agent expand a specified run, wherever runs are c
 
 - **[NOTE FOR PM]** A working/idle status indicator driven by `useAgent` is part of this feature's Phase 1 per the source spec, with its own testable success condition ("the sidebar header reflects the agent's run status during an active run"). It has no numbered FR here because it's deprioritized to an acceptance-criterion-level item, not because it's untestable — carry it into epics/stories under this feature.
 
-**Out of Scope:** Classifying the concrete Phase 2 tool inventory for the reworked Videos/Voices actions (assign, commit, discard, train) — deferred until Feature 4.5 lands, to avoid building against the `approve_run` action this PRD's other thread removes (see §8, Open Question 1). This feature also does not modify `pythonapi`'s tool-call handling — that is 4.1's scope entirely.
+**Out of Scope:** ~~Classifying the concrete Phase 2 tool inventory for the reworked Videos/Voices actions (assign, commit, discard, train) — deferred until Feature 4.5 lands, to avoid building against the `approve_run` action this PRD's other thread removes.~~ `[RESOLVED 2026-08-27]` The Phase-2 tool inventory shipped in `copilot_tools.tsx`: `addVideo`, `keepClips`, `discardClips`, `assignSpeaker`, `startTraining` — all `useFrontendTool` (reversible), no `useHumanInTheLoop`. There is no `approve_run`, no assign/commit/discard split. This feature does not modify `pythonapi`'s tool-call handling — that is 4.1's / §4.6's scope.
 
 ---
 
@@ -158,61 +191,128 @@ Running preprocess after new clips land regenerates the training config; running
 
 ### 4.4 Multi-Voice Data Model
 
-**Description:** Splits "voice" from "video ingestion" as first-class, independently-lifecycled entities in `pythonapi`. A Voice becomes a durable entity that many videos can feed over time; assigning a speaker to a Voice and committing that assignment (which starts training) become two separate, explicit steps rather than one irreversible action. That split is a deliberate trade: it costs the operator an extra step and an extra state to track, in exchange for the ability to hold an assignment before training commits to it. Depends on 4.3 for its gateway contract and filesystem layout. Source: `spec-multi-voice-data-model`. Realizes UJ-3, and is the upstream dependency for 4.5.
+**Description:** Splits "voice" from "video ingestion" as first-class, independently-lifecycled entities in `pythonapi`. A Voice becomes a durable entity that holds clips assigned to it from any number of videos over time. Assigning a video's clips to a Voice is one immediate action (`POST /voices/{id}/clips`); assigning the first clips starts the Voice's training. There is no separate commit or discard step. Depends on 4.3 for its gateway contract and filesystem layout. Source: `spec-multi-voice-data-model`. Realizes UJ-3, and is the upstream dependency for 4.5.
+
+> `[SUPERSEDED 2026-08-27]` The run-based `assign` → `commit` split first
+> written here, and its flattened `POST /runs/{id}/assign` +
+> `voice_contributions` + `COMMITTED` replacement from 2026-08-16, were both
+> reversed. Shipped model is clip-based: a `voice_clips` table, per-clip
+> keep/exclude review, `POST /voices/{id}/clips` to assign a video's clips to
+> a Voice. No `voice_contributions` table, no `COMMITTED` phase, no
+> run-scoped assign or commit route exists. FR-16 through FR-22 below are
+> rewritten to the shipped model. See `sprint-change-proposal-2026-08-27.md`.
 
 **Functional Requirements:**
 
 #### FR-16: Voice is a durable, independent entity
-The system represents a Voice (id, name, `phase`, `checkpoint_path`) independent of any single video via a `voices` table, exposed via `POST /voices` to create a named Voice and `GET /voices/{id}` to fetch a Voice with its contributions.
+`[DELIVERED 2026-08-27 — "clips", not "contributions"]` The system represents a Voice (`id`, `name`, `phase`, `checkpoint_path`) independent of any single video via a `voices` table, exposed via `POST /voices` to create a named Voice, `GET /voices/{id}` to fetch a Voice with its assigned clips, and `PATCH /voices/{id}` to rename it.
 
-#### FR-17: Ingest phase and voice phase are tracked on separate tables; a Run reaching `COMMITTED` moves its assigned Voice(s) to `TRAINING`
-Run `ingest_phase` (`DOWNLOADING`/`DIARIZING`/`AWAITING_REVIEW`/`COMMITTED`) and Voice `phase` (`AWAITING_COMMIT`/`TRAINING`/`EXPORTING`/`READY`/`FAILED`) remain tracked on separate tables/columns. A Run reaching `COMMITTED` — now the immediate result of assignment, not a later step — moves the assigned Voice(s) to `TRAINING` in the same operation. `[SUPERSEDED 2026-08-16]` Originally read "a Run reaching `COMMITTED` does not itself change any Voice's phase" — reversed by user decision; see `sprint-change-proposal-2026-08-16.md`.
+#### FR-17: Run phase and voice phase are separate state machines, neither driving the other
+`[SUPERSEDED 2026-08-27 — no COMMITTED phase]` `[DELIVERED — separate state machines]` Run `phase` (`DOWNLOADING`/`DIARIZING`/`INGESTED`/`FAILED`) and Voice `phase` (`AWAITING_COMMIT`/`COMPILING`/`TRAINING`/`EXPORTING`/`READY`/`FAILED`) are tracked on separate tables. Neither drives the other: assigning clips to a Voice changes no Run phase, and a Run reaching `INGESTED` changes no Voice phase. Review is not a Run phase — a video stays in review until every clip has a keep/exclude decision. Originally (2026-08-13) read "does not itself change any Voice's phase"; 2026-08-16 reversed that to "a Run reaching `COMMITTED` moves the Voice to `TRAINING`"; 2026-08-27 dropped `COMMITTED` entirely. See `sprint-change-proposal-2026-08-27.md`.
 
-#### FR-18: Assigning a speaker to a Voice assigns, writes a contribution, and advances the run, in one call
-`POST /runs/{id}/assign` associates a video's speakers with Voices, creates one immutable Voice Contribution record per (voice, run, speaker) triple, and advances `ingest_phase` to `COMMITTED`, all in one call. `[SUPERSEDED 2026-08-16]` Originally split this across two routes (`/assign` then a separate `/commit`) — merged by user decision; see `sprint-change-proposal-2026-08-16.md`.
+#### FR-18: Assigning a video's clips to a Voice is one immediate call
+`[SUPERSEDED 2026-08-27 — no run-scoped assign or commit route]` `[DELIVERED — clip-based]` `POST /voices/{id}/clips` assigns a list of a video's clip IDs to a Voice. `POST /voices/{id}/clips/unassign` removes them. Assignment is per-clip and append-only; it touches no Run phase. Picking a speaker in the UI sends that speaker's whole clip list; correcting one clip sends one ID. Originally split across `/assign` then `/commit` (2026-08-13), merged onto `POST /runs/{id}/assign` (2026-08-16), then moved to the Voice resource (2026-08-27).
 
-#### FR-19: Every contribution is an immutable audit record
-One `voice_contributions` row is created per (voice, run, speaker) triple on assignment; rows are never updated in place. `[REWORDED 2026-08-16]` Trigger changed from "on commit" to "on assignment" to match FR-18's merge — the one-row-per-triple and immutability invariants are unchanged.
+#### FR-19: A clip's Voice assignment is the immutable audit record
+`[SUPERSEDED 2026-08-27 — the (voice, run, speaker) triple and voice_contributions table were never shipped]` `[DELIVERED — clip assignment is the record]` Each clip carries at most one Voice assignment, recorded on its `voice_clips` row. Reassigning a clip overwrites that one field; the clip and its audio are never mutated. Un-keeping or reassigning a clip takes effect at the next `COMPILING` pass, which re-gathers the Voice's kept clips from scratch.
 
 #### FR-20: Training can be triggered explicitly or automatically
-`POST /voices/{id}/train` triggers training explicitly; training also triggers automatically on a Voice's first contribution. `[ASSUMPTION]` Both trigger paths are supported concurrently, since the source spec did not pick one exclusively — confirm this is still the intended behavior rather than a placeholder for a later decision.
+`[DELIVERED 2026-08-27]` `POST /voices/{id}/train` triggers training explicitly, accepted in any phase. Training also triggers automatically when clips are first assigned to a Voice — the assign route wakes `VoiceTrainingReconciler`. Both paths are permanent (resolves the 2026-08-13 `[ASSUMPTION]` and §8 Open Question 3).
 
 #### FR-21: Ingestion and voice training run as separate state machines
-One LangGraph per video handles ingestion; a separate LangGraph per Voice handles training, triggered on contribution commit.
+`[DELIVERED 2026-08-27]` One LangGraph per video handles ingestion (`voice_run_graph.py`); a separate LangGraph per Voice handles training (`voice_training_graph.py`), triggered when clips are assigned to the Voice. No shared node code.
 
 #### FR-22: Voice-centric queries are supported at the repository layer
-The repository layer answers "all contributions for this voice, joined to run/video" and "fetch voice by name," in addition to existing run-centric queries.
+`[SUPERSEDED 2026-08-27 — "all contributions joined to run/video" is now "all clips with their video"]` `[DELIVERED]` The repository layer answers "all clips assigned to this Voice, each with the video it came from" (`list_clips_for_voice`, `list_clips_for_voices`) and "fetch Voice by name" (`get_voice_by_name`), alongside the existing run-centric queries.
 
 **Feature-specific NFRs:**
 
-- All new persistence uses SQLAlchemy 2.0 async via `Base.metadata.create_all` — no raw SQL, per this project's standing convention. `voice_runs` is trimmed, not grown: its training-related columns move to the new `voices` table, leaving `voice_runs` holding only ingestion-related fields. `voices` and `voice_contributions` are new tables.
+- `[UPDATED 2026-08-27]` All new persistence uses SQLAlchemy 2.0 async via `Base.metadata.create_all` — no raw SQL, no Alembic, per this project's standing convention. `voice_runs` holds ingestion fields only; training state lives on the new `voices` table. `voices` and `voice_clips` are the new tables. `voice_contributions` was never created.
 
-**Out of Scope:** No frontend or UI change is made in this feature — that is 4.5's scope. No change to the video-scoped filesystem layout or gateway routes — that is 4.3's scope. No change to multi-character clip-merge logic in the voice factory's own commit stage; this feature only ensures `pythonapi` tracks the merge via contributions.
+**Out of Scope:** No frontend or UI change is made in this feature — that is 4.5's scope. No change to the video-scoped filesystem layout or gateway routes — that is 4.3's scope. No change to multi-character clip-merge logic in the voice factory's own commit stage.
 
 ---
 
 ### 4.5 Videos & Voices Views
 
-**Description:** Splits the current single flat run-list UI into two dedicated screens — a Videos view for ingestion review and a Voices view for voice management — and surfaces the assign/commit split from 4.4 in the UI, replacing a single irreversible "approve" action. Depends on 4.4's routes and data model. Source: `spec-videos-and-voices-views`. Realizes UJ-3.
+**Description:** Splits the current single flat run-list UI into dedicated views — a Videos view for ingestion review and a Voices view for voice management — and surfaces clip assignment from 4.4 in the UI. Depends on 4.4's routes and data model. Source: `spec-videos-and-voices-views`. Realizes UJ-3.
+
+> `[DELIVERED IN PART / SUPERSEDED IN PART — 2026-08-27]` Views shipped as
+> client tab state (`type View = "videos" | "voices" | "search"` in
+> `studio_provider.tsx`), not App Router segments. The assign/commit UI never
+> shipped — clip assignment replaced it. FR-27's contributing-videos popover,
+> "Train now"/"Retrain" split, model-size, "Download model", and "View clips"
+> modal were not built. See `sprint-change-proposal-2026-08-27.md`.
 
 **Functional Requirements:**
 
 #### FR-23: Videos and Voices are separate views
-A tab or nav segment switches between a Videos view and a Voices view; each renders independently.
+`[DELIVERED 2026-08-27 — client tab state, not App Router segments]` A tab segment switches between Videos, Voices, and Search views; each renders independently with no full page reload.
 
 #### FR-24: Videos view surfaces ingestion state per video
-The Videos view lists video title, source URL, speaker count, and diarization status; expanding a row shows its detected speaker clips, each labeled "awaiting assignment" or "assigned to voice X."
+`[DELIVERED 2026-08-27]` The Videos view lists each video's title, source URL, detected-speaker count, and diarization status. Expanding a video shows its clips in a table: per-clip transcript, keep/exclude state, diarization-quality flag, and the Voice each clip is assigned to (or "unassigned").
 
 #### FR-25: Speaker naming is search-or-create, not free text
-Speaker naming uses a combobox that searches existing Voices or creates a new one inline.
+`[DELIVERED 2026-08-27]` Speaker naming uses a combobox that searches existing Voices or creates a new one inline.
 
-#### FR-26: Assigning a speaker to a Voice commits immediately — no separate commit or discard step
-Assigning a speaker to a Voice via the combobox commits immediately: it creates the contribution record and, on a Voice's first contribution, triggers training. Multiple videos' speakers can be assigned independently and in any order. `[SUPERSEDED 2026-08-16]` Originally read: "'Assign speakers' opens the combobox without starting training; 'Commit assignments' locks assignments in and creates contributions; 'Discard' resets a run to `AWAITING_REVIEW`." The three-action model is reversed in favor of the adopted UI design's single relabel-and-done interaction; see `sprint-change-proposal-2026-08-16.md`.
+#### FR-26: Assigning a speaker to a Voice is immediate — no separate commit or discard step
+`[SUPERSEDED 2026-08-27 — clip-based, not the voice_contributions write FR-26 named on 2026-08-16]` `[DELIVERED]` Picking a Voice for a speaker in the combobox assigns that speaker's clips to the Voice in one call and, if it is the Voice's first assignment, starts its training. There is no separate commit or discard step. Speakers across any number of videos can be assigned independently, in any order. A later per-clip correction reassigns that one clip. Originally (2026-08-13) a three-action "Assign / Commit / Discard" model; collapsed to one action 2026-08-16; moved to clip assignment 2026-08-27.
 
 #### FR-27: Voices view surfaces training state per voice
-The Voices view shows a card per Voice: name, phase, total clip count, and model size once `READY`. Each card shows a contributing-videos count badge (e.g. "3 videos") that opens a popover listing each contributing video, its clip count, and assignment date. A Voice with `AWAITING_COMMIT` contributions shows a phase-conditional "Train now" action; a standing "Retrain" action independently re-triggers `POST /voices/{id}/train` regardless of that condition. "View clips" opens a modal listing every clip across all of the Voice's contributing videos. "Download model" activates once a Voice reaches `READY`.
+`[SUPERSEDED 2026-08-27 — trimmed]` `[DELIVERED]` The Voices view shows a card per Voice: name (editable inline via `PATCH /voices/{id}`), a phase pill, kept-clip count, source-video count, and total kept-clip duration. Selecting a Voice opens a training panel listing its kept and excluded clips (gathered across every source video — the same rows `COMPILING` uses) and a single "Start training" action, enabled when the Voice has at least one kept clip and is not already training, that calls `POST /voices/{id}/train`. **Dropped, not built:** the contributing-videos popover with per-video clip counts and assignment dates, the phase-conditional "Train now" vs. standing "Retrain" split, model-size display, "Download model", and the "View clips" modal (the clip list is inline in the training panel). The clip model keeps no per-video contribution record with a date.
 
-**Out of Scope:** Changes to pythonapi routes or the data model (owned entirely by 4.4) and changes to existing clip audio-quality review/playback (`speaker_board` playback flow is preserved as-is).
+**Out of Scope:** Changes to pythonapi routes or the data model (owned entirely by 4.4) and changes to existing clip audio-quality review/playback (playback flow is preserved as-is).
+
+---
+
+### 4.6 Multi-Agent A2A Network
+
+`[NEW 2026-08-27 — delivered without a plan; recorded after the fact]`
+
+**Description:** Replaces the single chat agent with a network of three. An
+Orchestrator agent is the only agent the browser talks to. It classifies each
+AG-UI request as `research`, `voice`, `research_and_voice`, or `general` and
+routes it to a specialist over the A2A protocol, falling back to an LLM router
+only when deterministic rules cannot classify safely. A Research Agent answers
+research questions using the existing `RagPipeline` and returns sourced
+answers. A Voice Agent drives the existing voice API and voice factory. The
+Orchestrator discovers each specialist's skills from its published Agent Card
+via Agentic Resource Discovery (ARD); a configured URL per specialist is the
+transport fallback. Source: `spec-multi-agent-a2a`. This work absorbed §4.1 —
+the tool-calling loop lives in `agents/orchestrator/chat_agent.py`.
+
+**Capabilities (delivered):**
+
+- The Orchestrator is the only browser-facing agent; a `research`/`voice`/`research_and_voice` request never reaches Qdrant or the voice factory except through a specialist.
+- The Research Agent never starts, modifies, or reads voice run state. The Voice Agent never queries Qdrant.
+- `voice_runs.phase` and `VoiceRunReconciler` stay the only source of truth and the only writer of run phases — the Voice Agent wraps the reconciler, it does not replace it.
+- A specialist being unavailable degrades only its own capability; a `general` request still answers with both specialists down.
+- Every delegation is traceable end to end in Langfuse: agent name, skill, A2A task ID, context ID, target, status.
+- The service publishes a static `ai-catalog` ARD manifest and serves the ARD registry search API over it.
+
+**Code:** `agents/{orchestrator,research,voice}/`, `a2a_support/`,
+`core/ard_catalog.py`, `routes/ard.py`. **Tests:** `test_orchestrator_agent.py`,
+`test_orchestrator_delegation.py`, `test_research_agent.py`,
+`test_voice_agent.py`, `test_agent_tools.py`, `test_ard.py`.
+
+**Out of Scope (per the source spec):** MCP is not adopted. No A2A push
+notifications. ARD `trustManifest`, SPIFFE identity, and JWS signing are out —
+the demo uses a placeholder publisher domain and says so. CI mocks the voice
+factory and GPU training. Authenticated A2A is required in production config
+but unauthenticated internal calls are accepted for local development.
+
+---
+
+### 4.7 Factory Is the Source of Truth
+
+`[NEW 2026-08-27 — delivered as PR #20; recorded after the fact]`
+
+**Description:** The voice factory host owns clip decisions. `review.csv` on
+the factory host stays the one source of truth for keep/exclude; `pythonapi`
+stores run and voice state and nothing on disk. Source:
+`spec-factory-source-of-truth`.
+
+**Out of Scope:** Rebuilding the factory's own commit/merge logic.
 
 ## 5. Non-Goals (Explicit)
 
@@ -220,28 +320,34 @@ The Voices view shows a card per Voice: name, phase, total clip count, and model
 - No server-side tool execution or synchronous tool-result waiting is introduced — frontend tools execute in the browser only (4.1). 4.1 shares no dependency with the voice-pipeline threads (4.3–4.5) and can proceed in parallel with them.
 - No change to `pythonapi`'s tool-call handling in 4.2 — that is 4.1's scope entirely.
 - No rebuilding of multi-character clip routing in the voice factory host — it already works via `speaker_map.json`/`commit_reviewed_clips`; only the file's location moves (4.3). No change to the `JobRequest` data model — the `character` field is already optional (4.3).
-- No change to multi-character clip-merge logic in the voice factory's own commit stage — 4.4 only ensures `pythonapi` tracks the merge via contributions. No frontend or UI change in 4.4 — that is 4.5's scope. No change to the video-scoped filesystem layout or gateway routes in 4.4 — that is 4.3's scope.
-- No migration tooling (e.g., Alembic) for the `voice_runs` trim (training-related columns moving out to `voices`) — development recreates the table (4.4).
-- The concrete Phase 2 tool inventory for Videos/Voices actions (4.2's deferred scope) is not defined in this PRD — it is explicitly sequenced after 4.5.
+- No change to multi-character clip-merge logic in the voice factory's own commit stage. No frontend or UI change in 4.4 — that is 4.5's scope. No change to the video-scoped filesystem layout or gateway routes in 4.4 — that is 4.3's scope.
+- No migration tooling (e.g., Alembic) for the voice schema — development recreates the tables (4.4).
+- ~~The concrete Phase 2 tool inventory for Videos/Voices actions is not defined in this PRD.~~ `[RESOLVED 2026-08-27]` It shipped — see §4.2 Out of Scope.
 
 ## 6. MVP Scope
 
+> `[DELIVERED 2026-08-27]` The MVP shipped. Every user journey (UJ-1 through
+> UJ-4) is served — see the per-FR tags in §4 for the mechanism each one
+> shipped with, and `sprint-change-proposal-2026-08-27.md` for where the
+> mechanism differs from this section's wording.
+
 ### 6.1 In Scope
 
-- Agent tool-calling loop, backend and frontend (4.1, 4.2 Phase 1: context publishing, one frontend tool, suggestions, status indicator).
-- Voice pipeline data-model rework end-to-end: video-scoped ingestion, multi-voice data model, and the Videos/Voices UI split (4.3, 4.4, 4.5).
+- Agent tool-calling loop, backend and frontend (4.1, 4.2). Shipped inside the multi-agent A2A network (§4.6).
+- Voice pipeline data-model rework end-to-end: video-scoped ingestion (4.3), the durable-Voice / clip-assignment data model (4.4), and the Videos/Voices UI split (4.5).
 
 ### 6.2 Out of Scope for MVP
 
-- 4.2 Phase 2 (concrete tool inventory for the new Videos/Voices actions) — see §4.2 Out of Scope for why. **[NOTE FOR PM]** Revisit immediately once 4.5 lands; this is sequencing, not descoping.
-- Migration of pre-existing `work/<character>/youtube/*` directories to the new video-scoped layout (4.3) — unresolved; see §8.
+- ~~4.2 Phase 2 (concrete tool inventory).~~ `[RESOLVED 2026-08-27]` Shipped.
+- ~~Migration of pre-existing `work/<character>/youtube/*` directories.~~ `[RESOLVED]` One-time re-ingest in development; no migration script.
+- A server-side or browser-side runaway-tool-call cap (former FR-5) — see §4.1.
 
 ## 7. Success Metrics
 
 **Primary**
 
-- **SM-1**: An evaluator can, in one live session, ask the agent to act on the Voices dashboard (expand a run) and get a correct, state-aware follow-up answer, with no manual UI interaction between the two. Validates FR-1, FR-2, FR-3, FR-7, FR-8, FR-10. Re-validate after 4.5 ships, not only before — see §8, Open Question 4.
-- **SM-2**: A single Voice can be shown, live, to have been built from clips contributed by two or more distinct videos, with each contribution traceable in the UI. Validates FR-14, FR-16, FR-19, FR-22, FR-27.
+- **SM-1**: An evaluator can, in one live session, ask the agent to act on the Voices dashboard and get a correct, state-aware follow-up answer, with no manual UI interaction between the two. Validates FR-1, FR-2, FR-3, FR-7, FR-8, FR-10.
+- **SM-2**: `[UPDATED 2026-08-27]` A single Voice can be shown, live, to hold clips assigned from two or more distinct videos, with each source video visible in the Voice's clip list (Voices view: source-video count; training panel: per-clip video). Validates FR-14, FR-16, FR-19, FR-22, FR-27. (Originally "each contribution traceable in the UI" — the clip model has no per-video contribution record with a date.)
 
 **Secondary**
 
@@ -250,18 +356,20 @@ The Voices view shows a card per Voice: name, phase, total clip count, and model
 
 **Counter-metrics (do not optimize)**
 
-- **SM-C1**: Tool-call turn count per conversation should not silently climb toward `LLM_MAX_TOOL_TURNS` as a matter of course — hitting the cap routinely would indicate the agent is thrashing, not demonstrating capability. Counterbalances SM-1.
-- **SM-C2**: A rising contributing-video count on a Voice is not itself the goal — a well-trained single-source Voice beats a noisy multi-source one; per-contribution audio quality should not be sacrificed to grow SM-2's count. Counterbalances SM-2.
+- **SM-C1**: `[UPDATED 2026-08-27]` Tool-call turn count per conversation should not silently climb — a thrashing agent is not a capable one. (There is no `LLM_MAX_TOOL_TURNS` cap; the orchestrator ends its run after emitting calls — see §4.1.) Counterbalances SM-1.
+- **SM-C2**: A rising source-video count on a Voice is not itself the goal — a well-trained single-source Voice beats a noisy multi-source one; per-clip audio quality should not be sacrificed to grow SM-2's count. Counterbalances SM-2.
 - **SM-C3**: A cache hit on re-ingestion (SM-3) must still serve correct artifacts, not merely fast ones — reuse should not silently serve stale transcription/diarization if the source video changed. Counterbalances SM-3.
 
 ## 8. Open Questions
 
-1. Once 4.5 ships, what is the concrete tool inventory for the new Videos/Voices actions, and how does each classify under the Need-to-Hook policy table (`useFrontendTool` vs. `useHumanInTheLoop`) — e.g., for assign (now commit-on-assign) and train? (From 4.2's deferred scope.) `[UPDATED 2026-08-16]` "Commit" and "discard" dropped from the example list — assign/commit merged and discard was removed; see `sprint-change-proposal-2026-08-16.md`.
-2. ~~What is the migration path for pre-existing `work/<character>/youtube/*` directories...~~ **Resolved during story creation:** accepted one-time re-ingest in development; no migration script. See `_bmad-output/planning-artifacts/epics.md`, Epic 2.
-3. Is the dual training-trigger behavior in FR-20 (explicit call and auto-trigger-on-first-contribution) the intended permanent behavior, or a placeholder pending a later decision to pick one?
-4. ~~FR-10's "expand a run" frontend tool (§4.2) is built against whichever run-list UI exists when 4.2 ships...~~ **Resolved during epic planning:** the voice-pipeline rework (4.3–4.5) ships before the agent tool-calling thread (4.1–4.2). FR-10 is built once, directly against the final Videos/Voices UI — no rework pass or dual SM-1 validation needed. See `_bmad-output/planning-artifacts/epics.md`, Epic ordering.
+> `[ALL RESOLVED 2026-08-27]` — the code shipped. Kept here as a record.
+
+1. ~~Concrete Phase-2 tool inventory for the new Videos/Voices actions.~~ **Resolved:** `copilot_tools.tsx` registers `addVideo`, `keepClips`, `discardClips`, `assignSpeaker`, `startTraining` — all `useFrontendTool` (reversible), none `useHumanInTheLoop`. No `approve_run`, no assign/commit/discard.
+2. ~~Migration path for pre-existing `work/<character>/youtube/*` directories.~~ **Resolved:** one-time re-ingest in development; no migration script. Video-scoped layout is `work/youtube/<video_id>`.
+3. ~~Dual training-trigger behavior in FR-20 — permanent or placeholder?~~ **Resolved:** both paths (`POST /voices/{id}/train` and auto-trigger on first clip assignment) are permanent.
+4. ~~FR-10's frontend tool built against a UI that 4.5 then replaces — rework needed?~~ **Resolved:** the voice-pipeline rework shipped before the agent tool surface; the frontend tools were built once against the shipped Videos/Voices UI. No rework story was needed.
 
 ## 9. Assumptions Index
 
 - From §2.1 — the primary audience is technical (engineers, evaluators) rather than a consumer end-user, inferred from the project's own framing as a reference architecture rather than a shipped product.
-- From FR-20 (§4.4) — both the explicit `POST /voices/{id}/train` trigger and the automatic on-first-contribution trigger are treated as intentionally concurrent, not a placeholder for a single-trigger decision. Also listed as Open Question 3.
+- ~~From FR-20 (§4.4) — both training triggers are intentionally concurrent, not a placeholder.~~ `[RESOLVED 2026-08-27]` Confirmed permanent; see §8 Q3.

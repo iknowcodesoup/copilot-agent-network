@@ -11,6 +11,8 @@ sources:
 ---
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability only.
+>
+> **Status: DELIVERED (2026-08-27).** Orchestrator + Research Agent + Voice Agent under `agents/`, ARD discovery in `core/ard_catalog.py` and `routes/ard.py`, A2A support in `a2a_support/`. Tests: `test_orchestrator_agent.py`, `test_orchestrator_delegation.py`, `test_research_agent.py`, `test_voice_agent.py`, `test_ard.py`. This spec was never routed through `bmad-create-epics-and-stories`; it is recorded as **Post-plan Epic A** in `_bmad-output/planning-artifacts/epics.md` and as §4.6 in the PRD. It absorbed the AG-UI tool loop (`spec-agui-tool-loop`).
 
 # Multi-Agent A2A Architecture
 

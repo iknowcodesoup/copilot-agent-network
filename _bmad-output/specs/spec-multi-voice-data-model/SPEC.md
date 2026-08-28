@@ -8,6 +8,8 @@ companions:
 ---
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability — consult them only if you need narrative rationale or prose color this contract intentionally omits.
+>
+> **Status: SUPERSEDED (2026-08-27).** The run-based `assign` → `commit`, `voice_contributions` table, and `COMMITTED` run phase this spec designed were reversed — once on 2026-08-16 (flattened), then dropped entirely. The shipped model is **clip-based**: a `voice_clips` table, per-clip keep/exclude review, `POST /voices/{id}/clips` to assign a video's clips to a Voice. The durable-Voice entity, the separate state machines (FR16, FR17, FR21), and the per-Voice training graph all survived. See `_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-27.md` and `spec-factory-source-of-truth` (which `amends` this one).
 
 # Multi-Voice Data Model
 

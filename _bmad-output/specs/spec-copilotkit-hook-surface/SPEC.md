@@ -8,6 +8,8 @@ companions:
 ---
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability — consult them only if you need narrative rationale or prose color this contract intentionally omits.
+>
+> **Status: DELIVERED (2026-08-27).** `features/chat/copilot_tools.tsx` registers the hook surface with `@copilotkit/react-core/v2`: `useAgentContext` payloads, `useFrontendTool` for `addVideo` / `keepClips` / `discardClips` / `assignSpeaker` / `startTraining`, and a static `useConfigureSuggestions`. The `useAgent` working/idle indicator was not built. The concrete tool inventory this spec deferred is resolved by that file. See `_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-27.md`.
 
 # CopilotKit Hook Surface
 

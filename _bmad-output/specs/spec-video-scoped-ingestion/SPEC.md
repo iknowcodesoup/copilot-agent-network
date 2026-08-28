@@ -7,6 +7,8 @@ companions:
 ---
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability — consult them only if you need narrative rationale or prose color this contract intentionally omits.
+>
+> **Status: DELIVERED (2026-08-27).** Ingestion is video-scoped (`work/youtube/<video_id>`), artifacts reuse by video ID, the gateway routes moved in one paired change across the `copilot_agent_network` / `star-trek-voyicer` boundary. FR12–FR15 met. See `_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-27.md`.
 
 # Video-Scoped Ingestion
 

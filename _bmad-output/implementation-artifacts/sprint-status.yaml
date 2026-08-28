@@ -29,19 +29,19 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-13-2026 20:40
-last_updated: 08-15-2026
+last_updated: 08-27-2026
 project: copilot_agent_network
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 development_status:
-  epic-1: backlog
-  1-1-forward-tool-definitions-and-stream-tool-call-events: backlog
-  1-2-cap-runaway-tool-calling: backlog
-  1-3-publish-run-and-phase-context-to-the-agent: backlog
-  1-4-let-the-agent-expand-a-run: backlog
-  1-5-seed-starter-suggestions-from-visible-runs: backlog
-  1-6-show-agent-working-idle-status: backlog
+  epic-1: done
+  1-1-forward-tool-definitions-and-stream-tool-call-events: done
+  1-2-cap-runaway-tool-calling: out-of-scope
+  1-3-publish-run-and-phase-context-to-the-agent: done
+  1-4-let-the-agent-expand-a-run: done
+  1-5-seed-starter-suggestions-from-visible-runs: done
+  1-6-show-agent-working-idle-status: not-built
   epic-1-retrospective: optional
 
   epic-2: done
@@ -50,14 +50,17 @@ development_status:
   2-3-skip-redundant-preprocessing: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
-  3-1-create-the-durable-voice-entity: review
-  3-2-flatten-assignment-and-commit-into-one-immediate-audited-action: review
-  3-3-trigger-training-explicitly-or-automatically-independent-of: review
-  3-4-split-the-dashboard-into-videos-and-voices-views: review
-  3-5-review-ingestion-and-assign-speakers-in-the-videos-view: review
-  3-6-manage-voice-training-from-the-voices-view: review
+  epic-3: done
+  3-1-create-the-durable-voice-entity: done
+  3-2-flatten-assignment-and-commit-into-one-immediate-audited-action: done
+  3-3-trigger-training-explicitly-or-automatically-independent-of: done
+  3-4-split-the-dashboard-into-videos-and-voices-views: done
+  3-5-review-ingestion-and-assign-speakers-in-the-videos-view: done
+  3-6-manage-voice-training-from-the-voices-view: done
   epic-3-retrospective: optional
+
+  post-plan-epic-a-multi-agent-a2a: done
+  post-plan-epic-b-factory-source-of-truth: done
   # 2026-08-16: sprint-change-proposal-2026-08-16.md reversed Story 3.2's
   # assign/commit split (approved by user). PRD FR17/FR18/FR19/FR26 and
   # epics.md Stories 3.2/3.3/3.5/3.6 rewritten same day to match.
@@ -65,6 +68,16 @@ development_status:
   # /runs/{id}/assign route, dropped discard_run, and adapted the existing
   # Videos/Voices UI + a new voice_copilot_actions.tsx chat-tool surface.
   # Reviewed via 3 parallel reviewers on 2026-08-16; one real bug (chat
-  # tool's per-speaker assign calls) fixed. Branch epic-3-flatten-assign-commit,
-  # uncommitted as of this status update. All Epic 3 stories now in review,
-  # pending commit and final sign-off.
+  # tool's per-speaker assign calls) fixed.
+  #
+  # 2026-08-27: sprint-change-proposal-2026-08-27.md (approved by user).
+  # Documentation reconciliation, no code change. The merged /runs/{id}/assign
+  # route and voice_contributions model from 2026-08-16 were themselves
+  # reversed in the weeks after: the shipped model is CLIP-BASED
+  # (voice_clips table, POST /voices/{id}/clips, per-clip keep/exclude).
+  # No voice_contributions table, no COMMITTED phase, no run-scoped
+  # assign/commit route. Separately, a multi-agent A2A network shipped
+  # (Post-plan Epic A) and absorbed Epic 1. spec-factory-source-of-truth
+  # merged as PR #20 (Post-plan Epic B). Epic 1: 1.2 out of scope (no
+  # server-side tool loop to cap), 1.6 not built (no useAgent indicator).
+  # All FRs re-tagged in prd.md and epics.md.

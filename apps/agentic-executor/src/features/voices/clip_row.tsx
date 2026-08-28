@@ -64,6 +64,11 @@ export function ClipRow({
   const updateClips = useUpdateClips(clip.videoId);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(clip.text);
+  /* Raise this row above the ones below it while its voice dropdown is open.
+     An excluded clip's row is dimmed, and a dimmed element forms its own
+     stacking context - so the dropdown's own z-index cannot climb over the
+     next row from inside this one. The row has to win the ordering itself. */
+  const [pickerOpen, setPickerOpen] = useState(false);
   /* No timing means no range to play - the button stays disabled rather
      than falling back to playing the whole video. */
   const hasTiming = clip.startSec != null && clip.endSec != null;
@@ -91,7 +96,13 @@ export function ClipRow({
       }}
       className={cn(
         "rounded-lg border bg-background/40 p-3",
-        !clip.keep && "opacity-75",
+        /* Dim an unkept clip's row without opacity: a sub-1 opacity forms a
+           stacking context, which would trap this row's open voice dropdown
+           under the row below it. Muted text and border read the same. */
+        !clip.keep && "text-muted-foreground",
+        /* Positioned and lifted only while the voice dropdown is open, so the
+           list clears every row beneath it - a dimmed excluded row included. */
+        pickerOpen && "relative z-30",
         selected
           ? "border-primary/60 ring-1 ring-primary/40"
           : clip.keep
@@ -107,6 +118,7 @@ export function ClipRow({
           label={clip.speakerLabel ?? "this clip"}
           assignedVoiceName={clip.voiceName}
           onSelect={onAssignVoice}
+          onOpenChange={setPickerOpen}
         />
         {/* <button
           type="button"

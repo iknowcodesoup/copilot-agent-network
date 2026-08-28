@@ -7,6 +7,8 @@ companions:
 ---
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability — consult them only if you need narrative rationale or prose color this contract intentionally omits.
+>
+> **Status: DELIVERED (2026-08-27).** Lives in `agents/orchestrator/chat_agent.py` (moved there by the multi-agent A2A build), not `core/chat_agent.py`. CAP-1 through CAP-4 met; `test_agent_tools.py` covers them. **CAP-5 (the `LLM_MAX_TOOL_TURNS` runaway cap) was dropped** — the Orchestrator ends its run after emitting tool calls, so there is no server-side loop to cap. See `_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-27.md`.
 
 # AG-UI Tool Loop
 

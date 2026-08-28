@@ -18,6 +18,7 @@ export function VoicePicker({
   label,
   assignedVoiceName,
   onSelect,
+  onOpenChange,
 }: {
   /* what this picker is naming, for the accessible label - the speaker
      diarization heard, or the clip itself when it heard none */
@@ -25,10 +26,20 @@ export function VoicePicker({
   /* the currently assigned voice's name, or null when nothing is assigned */
   assignedVoiceName: string | null
   onSelect: (voiceId: string) => void
+  /* The row this picker sits in needs to lift itself above the rows below
+     while the dropdown is open, or an excluded clip's dimmed row - which
+     forms its own stacking context - paints over the list. The picker's own
+     z-index cannot reach across sibling rows; only the row can. */
+  onOpenChange?: (open: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpenState] = useState(false)
   const [query, setQuery] = useState("")
   const containerRef = useRef<HTMLDivElement>(null)
+
+  const setOpen = (next: boolean) => {
+    setOpenState(next)
+    onOpenChange?.(next)
+  }
 
   const voices = useVoices(query, open)
   const createVoice = useCreateVoice()
@@ -98,7 +109,7 @@ export function VoicePicker({
       )}
 
       {open && (
-        <ul className="absolute z-10 mt-1 max-h-56 w-full min-w-56 overflow-y-auto rounded-md border border-border bg-popover p-1 text-xs shadow-md">
+        <ul className="absolute z-50 mt-1 max-h-56 w-full min-w-56 overflow-y-auto rounded-md border border-border bg-popover p-1 text-xs shadow-md">
           {voices.isLoading && (
             <li className="px-2 py-1.5 text-muted-foreground">Searching...</li>
           )}

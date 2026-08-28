@@ -8,6 +8,8 @@ companions:
 ---
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability — consult them only if you need narrative rationale or prose color this contract intentionally omits.
+>
+> **Status: SUPERSEDED IN PART (2026-08-27).** The Videos and Voices views shipped as client tab state (`type View` in `studio_provider.tsx`), not App Router segments. The assign/commit UI this spec targets never shipped — clip assignment replaced it. The Voice card's contributing-videos popover with assignment dates, the "Train now"/"Retrain" split, model-size display, "Download model", and the "View clips" modal were not built. Search-or-create speaker combobox, per-video clip table, and preserved playback all shipped. See `_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-27.md`.
 
 # Videos And Voices Views
 

@@ -10,6 +10,8 @@ amends:
 ---
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete contract for what to build, test, and validate. See `brownfield.md` for the verified evidence behind every claim in "Why".
+>
+> **Status: DELIVERED (2026-08-27).** Merged as PR #20. The voice factory host owns clip decisions (`review.csv`); `pythonapi` stores run and voice state and nothing on disk. Never routed through `bmad-create-epics-and-stories`; recorded as **Post-plan Epic B** in `_bmad-output/planning-artifacts/epics.md` and §4.7 in the PRD. This spec `amends` `spec-multi-voice-data-model` (now superseded).
 
 # Factory Is The Source Of Truth
 
