@@ -1,8 +1,9 @@
 
 
 
-# copilot_agent_network
-
+# Copilot Agent Network
+### An AG-UI and A2A driven demo for enterprise agent architecture against a voice model generator
+---
 An Nx monorepo that runs a small network of cooperating agents. A Next.js
 studio talks to a Python FastAPI service over the AG-UI protocol. Inside that
 service, an Orchestrator delegates to two specialist agents over A2A. One
