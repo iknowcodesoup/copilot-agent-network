@@ -11,10 +11,7 @@ Every model call goes through one LiteLLM gateway. Every agent publishes a
 machine-readable card. The whole network boots with no environment file at all.
 
 ![The Voice Studio: a video queues for ingest, clips come back diarized and ready to assign, and an embedded copilot can drive the workflow from natural language](assets/wip_ui.5.png)
-
-<video controls>
-  <source src="assets/audio-filter-example.mp4" type="video/mp4">
-</video>
+[<img src="assets/wip_ui.5.png" />](assets/audio-filter-example.mp4)
 ---
 
 ## What is interesting here
