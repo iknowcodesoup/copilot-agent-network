@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquare, X } from "lucide-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StudioProvider, useStudio } from "@/features/chat/studio_provider";
 import { CopilotProvider } from "@/features/chat/copilot_provider";
@@ -64,7 +64,12 @@ function ViewTabs() {
 function StudioShell() {
   const { view } = useStudio();
   const [logOpen, setLogOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(true);
+  /* Docked column at lg+. Starts open there because it is a side-by-side
+     pane, not an obstruction. */
+  const [chatDocked, setChatDocked] = useState(true);
+  /* Overlay drawer below lg. Starts closed because it covers the app, and
+     is only ever opened by an explicit tap. */
+  const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -93,13 +98,25 @@ function StudioShell() {
                 {logOpen ? "Hide logs" : "Show logs"}
               </button>
               <ThemeToggle />
+              {/* Below lg this opens the overlay drawer, so it always shows
+                  a chat icon. At lg+ it docks and undocks the column, so the
+                  chevron reflects the current state. Two buttons, one per
+                  breakpoint, keeps each label honest. */}
               <button
                 type="button"
-                onClick={() => setChatOpen((o) => !o)}
-                title={chatOpen ? "Hide copilot" : "Show copilot"}
+                onClick={() => setChatDrawerOpen(true)}
+                title="Show copilot"
+                className="rounded-md border border-border bg-card px-2 py-1.5 text-muted-foreground transition-colors hover:text-foreground lg:hidden"
+              >
+                <MessageSquare className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setChatDocked((o) => !o)}
+                title={chatDocked ? "Hide copilot" : "Show copilot"}
                 className="hidden rounded-md border border-border bg-card px-2 py-1.5 text-muted-foreground transition-colors hover:text-foreground lg:block"
               >
-                {chatOpen ? (
+                {chatDocked ? (
                   <ChevronRight className="size-4" />
                 ) : (
                   <ChevronLeft className="size-4" />
@@ -141,9 +158,41 @@ function StudioShell() {
         </div>
       </div>
 
-      {chatOpen && (
+      {/* Docked column, lg+ only. */}
+      {chatDocked && (
         <div className="hidden w-80 shrink-0 lg:block xl:w-96">
           <ChatPanel />
+        </div>
+      )}
+
+      {/* Overlay drawer, below lg only: a fixed full-height sheet over a
+          tap-to-close backdrop. */}
+      {chatDrawerOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            aria-label="Close copilot"
+            onClick={() => setChatDrawerOpen(false)}
+            className="absolute inset-0 bg-black/50"
+          />
+          <div className="absolute inset-y-0 right-0 flex w-[90%] max-w-sm flex-col bg-card shadow-xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+              <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                Copilot
+              </span>
+              <button
+                type="button"
+                onClick={() => setChatDrawerOpen(false)}
+                title="Close copilot"
+                className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <ChatPanel />
+            </div>
+          </div>
         </div>
       )}
     </div>

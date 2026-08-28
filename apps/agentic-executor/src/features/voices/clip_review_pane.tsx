@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import { Eye, EyeOff, Pencil } from "lucide-react";
 import { useSpeakerBoard, useRenameVideo } from "./api/use_videos";
 import { useStudio } from "@/features/chat/studio_provider";
 import { RunActions } from "./run_actions";
@@ -13,6 +13,17 @@ import type { VideoSummary, VoiceRun } from "./types";
 /* Click the title to correct it. The factory owns the name - it lives in
    meta.json beside the clips - so the rename is visible to every character
    that claims the same video, and nothing is stored on this side. */
+/* Whether the YouTube player is on screen, remembered across reloads. Some
+   operators review by ear and want the clip list and trim bar to fill the
+   pane. The player stays mounted either way (see the render note below), so
+   this key only drives its height. */
+const PLAYER_SHOWN_KEY = "voices.clipReview.playerShown";
+
+function readPlayerShown() {
+  if (typeof window === "undefined") return true;
+  return window.localStorage.getItem(PLAYER_SHOWN_KEY) !== "false";
+}
+
 function VideoTitle({ video }: { video: VideoSummary }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(video.title);
@@ -100,6 +111,20 @@ export function ClipReviewPane({
   const selectedClip =
     clips.find((clip) => clip.clipId === activeClipId) ?? null;
 
+  /* Starts true on the server so the first client render matches, then the
+     effect corrects it from localStorage before paint. */
+  const [playerShown, setPlayerShown] = useState(true);
+  useEffect(() => {
+    setPlayerShown(readPlayerShown());
+  }, []);
+  const togglePlayer = () => {
+    setPlayerShown((shown) => {
+      const next = !shown;
+      window.localStorage.setItem(PLAYER_SHOWN_KEY, next ? "true" : "false");
+      return next;
+    });
+  };
+
   /* Every instruction to the player goes through this one cue, so it has a
      single caller and no second source of truth about where the video
      should be. Selecting a clip only re-aims a player that is already
@@ -186,6 +211,19 @@ export function ClipReviewPane({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <VideoTitle video={video} />
+        <button
+          type="button"
+          onClick={togglePlayer}
+          title={playerShown ? "Hide video" : "Show video"}
+          className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {playerShown ? (
+            <EyeOff className="size-3.5" />
+          ) : (
+            <Eye className="size-3.5" />
+          )}
+          {playerShown ? "Hide video" : "Show video"}
+        </button>
       </div>
 
       {run && (
@@ -201,12 +239,18 @@ export function ClipReviewPane({
         </div>
       )}
 
-      <YoutubeEmbedPlayer
-        video={video}
-        cue={videoCue}
-        onPause={() => setPlayingClipId(null)}
-        onTimeUpdate={setCurrentTimeSec}
-      />
+      {/* The player stays mounted while hidden - it is the only source of the
+          trim-bar cursor (onTimeUpdate) and the end-of-clip pause, both of
+          which a review-by-ear operator still wants. Hiding only collapses
+          its height. */}
+      <div className={playerShown ? undefined : "sr-only"} aria-hidden={!playerShown}>
+        <YoutubeEmbedPlayer
+          video={video}
+          cue={videoCue}
+          onPause={() => setPlayingClipId(null)}
+          onTimeUpdate={setCurrentTimeSec}
+        />
+      </div>
       <ClipTrimBar
         videoId={video.videoId}
         clip={selectedClip}
